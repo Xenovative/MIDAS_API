@@ -31,11 +31,17 @@ class LLMProvider:
 
 
 class OpenAIProvider(LLMProvider):
+    NO_TEMP_KEYWORDS = ['chatgpt-4o-latest', 'gpt-5', 'o1', 'o3', 'realtime']
+
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
     
     def is_available(self) -> bool:
         return self.client is not None
+
+    def _supports_temperature(self, model_id: str) -> bool:
+        lower_id = model_id.lower()
+        return not any(keyword in lower_id for keyword in self.NO_TEMP_KEYWORDS)
     
     async def chat(
         self,
@@ -48,12 +54,6 @@ class OpenAIProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("OpenAI API key not configured")
         
-        # Models that don't support custom temperature (must stay at default 1)
-        no_temp_keywords = ['chatgpt-4o-latest', 'gpt-5', 'o1', 'o3', 'realtime']
-        def supports_temperature(model_id: str) -> bool:
-            lower_id = model_id.lower()
-            return not any(keyword in lower_id for keyword in no_temp_keywords)
-        
         params = {
             "model": model,
             "messages": messages,
@@ -61,7 +61,7 @@ class OpenAIProvider(LLMProvider):
         }
         
         # Only add temperature if model supports it
-        if supports_temperature(model):
+        if self._supports_temperature(model):
             params["temperature"] = temperature
         
         # Handle max_tokens (skip for models that don't support the parameter)
@@ -103,7 +103,7 @@ class OpenAIProvider(LLMProvider):
         }
         
         # Only add temperature if model supports it
-        if supports_temperature(model):
+        if self._supports_temperature(model):
             params["temperature"] = temperature
             print(f"✅ Temperature added: {temperature}")
         else:
