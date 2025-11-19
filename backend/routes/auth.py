@@ -75,6 +75,10 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
             detail="Email or username already registered"
         )
     
+    # Determine if this is the first user
+    existing_any = await db.execute(select(User.id).limit(1))
+    is_first_user = existing_any.scalar_one_or_none() is None
+
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     new_user = User(
@@ -82,7 +86,7 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
         username=user_data.username,
         hashed_password=hashed_password,
         full_name=user_data.full_name,
-        role="free"
+        role="admin" if is_first_user else "free"
     )
     
     db.add(new_user)
