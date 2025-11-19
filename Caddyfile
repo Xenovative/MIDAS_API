@@ -1,6 +1,9 @@
 :80 {
-  @api path /api/*
-  reverse_proxy @api 127.0.0.1:8000
+  handle_path /api/* {
+    reverse_proxy 127.0.0.1:8000
+  }
 
-  reverse_proxy 127.0.0.1:3000
+  handle {
+    reverse_proxy 127.0.0.1:3000
+  }
 }
