@@ -11,8 +11,11 @@ BACKEND_PORT=8000
 WORKERS=2
 SOURCE_DIR="$(pwd)"
 SKIP_SYSTEMD=0
-SKIP_NGINX=1
+SKIP_NGINX=0
 ASSUME_YES=0
+RUN_INIT_DB=1
+RUN_CREATE_ADMIN=1
+SET_PERMISSIONS=1
 
 usage() {
   cat <<'EOF'
@@ -29,6 +32,9 @@ Options:
   --skip-systemd        Only sync/build without touching systemd
   --skip-nginx          Explicitly skip Nginx configuration (default)
   --configure-nginx     Enable Nginx configuration
+  --skip-init-db        Skip running init_db.py after deploy
+  --skip-create-admin   Skip running create_admin.py after deploy
+  --no-permissions      Skip ownership/permission fixes
   --yes                 Assume "yes" for prompts
   -h, --help            Show this help
 EOF
@@ -164,6 +170,12 @@ parse_args() {
         SKIP_NGINX=1; shift ;;
       --configure-nginx)
         SKIP_NGINX=0; shift ;;
+      --skip-init-db)
+        RUN_INIT_DB=0; shift ;;
+      --skip-create-admin)
+        RUN_CREATE_ADMIN=0; shift ;;
+      --no-permissions)
+        SET_PERMISSIONS=0; shift ;;
       --yes)
         ASSUME_YES=1; shift ;;
       -h|--help)
@@ -328,6 +340,8 @@ main() {
   configure_env_file
   setup_python
   build_frontend
+  bootstrap_database
+  fix_permissions
   configure_systemd
   configure_nginx
   summary
