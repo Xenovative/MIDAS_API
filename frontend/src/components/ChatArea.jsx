@@ -260,63 +260,88 @@ export default function ChatArea() {
       const decoder = new TextDecoder()
       let conversationId = currentConversation?.id
       let fullContent = ''
+      let buffer = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
+        for (const rawLine of lines) {
+          const line = rawLine.trim()
+          if (!line || !line.startsWith('data: ')) continue
 
-            if (data.type === 'conversation_id') {
-              conversationId = data.conversation_id
-              if (!currentConversation) {
-                // Create new conversation with user message
-                const newConversation = { 
-                  id: conversationId, 
-                  messages: [userMessage],
-                  title: message.slice(0, 50),
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString()
-                }
-                setCurrentConversation(newConversation)
-                addConversation(newConversation)
-              }
-            } else if (data.type === 'content') {
-              fullContent += data.content
-              setStreamingMessage(fullContent)
-            } else if (data.type === 'agent_executions') {
-              setAgentExecutions(prev => [...prev, ...data.executions])
-            } else if (data.type === 'title') {
-              // Update conversation title
-              if (currentConversation) {
-                const updatedConversation = {
-                  ...currentConversation,
-                  title: data.title
-                }
-                setCurrentConversation(updatedConversation)
-                addConversation(updatedConversation)
-              }
-            } else if (data.type === 'done') {
-              const assistantMessage = {
-                id: data.message_id,
-                conversation_id: conversationId,
-                role: 'assistant',
-                content: fullContent,
-                model: selectedModel,
-                created_at: new Date().toISOString(),
-              }
-              addMessage(assistantMessage)
-              setStreamingMessage('')
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error)
-              alert('Error: ' + data.error)
-            }
+          const payload = line.slice(6).trim()
+          if (!payload) continue
+
+          let data
+          try {
+            data = JSON.parse(payload)
+          } catch (err) {
+            console.error('Failed to parse SSE payload:', payload, err)
+            continue
           }
+
+          if (data.type === 'conversation_id') {
+            conversationId = data.conversation_id
+            if (!currentConversation) {
+              // Create new conversation with user message
+              const newConversation = {
+                id: conversationId,
+                messages: [userMessage],
+                title: message.slice(0, 50),
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }
+              setCurrentConversation(newConversation)
+              addConversation(newConversation)
+            }
+          } else if (data.type === 'content') {
+            fullContent += data.content
+            setStreamingMessage(fullContent)
+          } else if (data.type === 'agent_executions') {
+            setAgentExecutions(prev => [...prev, ...data.executions])
+          } else if (data.type === 'title') {
+            // Update conversation title
+            if (currentConversation) {
+              const updatedConversation = {
+                ...currentConversation,
+                title: data.title
+              }
+              setCurrentConversation(updatedConversation)
+              addConversation(updatedConversation)
+            }
+          } else if (data.type === 'done') {
+            const assistantMessage = {
+              id: data.message_id,
+              conversation_id: conversationId,
+              role: 'assistant',
+              content: fullContent,
+              model: selectedModel,
+              created_at: new Date().toISOString(),
+            }
+            addMessage(assistantMessage)
+            setStreamingMessage('')
+          } else if (data.type === 'error') {
+            console.error('Stream error:', data.error)
+            alert('Error: ' + data.error)
+          }
+        }
+      }
+
+      // Process any leftover buffered line (if reader ended without newline)
+      if (buffer.trim().startsWith('data: ')) {
+        try {
+          const data = JSON.parse(buffer.trim().slice(6))
+          if (data.type === 'error') {
+            console.error('Stream error:', data.error)
+            alert('Error: ' + data.error)
+          }
+        } catch (err) {
+          console.error('Failed to parse trailing SSE payload:', buffer, err)
         }
       }
     } catch (error) {
