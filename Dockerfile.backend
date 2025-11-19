@@ -18,8 +18,12 @@ RUN pip install --upgrade pip && \
 
 COPY backend ./backend
 COPY init_db.py .
+COPY create_admin.py .
 COPY migrate_add_bot_id.py .
+COPY docker_backend_entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 EXPOSE 8000
 
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
