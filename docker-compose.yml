@@ -16,6 +16,9 @@ services:
     ports:
       - "8000:8000"
     depends_on: []
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
   frontend:
     build:
@@ -29,6 +32,9 @@ services:
       - "3000:80"
     depends_on:
       - backend
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
   proxy:
     image: caddy:2
