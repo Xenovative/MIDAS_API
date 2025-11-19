@@ -235,6 +235,50 @@ build_frontend() {
   popd >/dev/null
 }
 
+bootstrap_database() {
+  local venv_python="${APP_DIR}/venv/bin/python"
+  if [[ ! -x "${venv_python}" ]]; then
+    log "Python environment not found at ${venv_python}; skipping DB bootstrap"
+    return
+  fi
+
+  pushd "${APP_DIR}" >/dev/null
+
+  if [[ ${RUN_INIT_DB} -eq 1 ]]; then
+    log "Running init_db.py (this recreates tables)"
+    "${venv_python}" init_db.py
+  else
+    log "Skipping init_db.py (--skip-init-db)"
+  fi
+
+  if [[ ${RUN_CREATE_ADMIN} -eq 1 ]]; then
+    log "Running create_admin.py (no-ops if admin exists)"
+    "${venv_python}" create_admin.py || true
+  else
+    log "Skipping create_admin.py (--skip-create-admin)"
+  fi
+
+  popd >/dev/null
+}
+
+fix_permissions() {
+  if [[ ${SET_PERMISSIONS} -ne 1 ]]; then
+    log "Skipping permission adjustments (--no-permissions)"
+    return
+  fi
+
+  log "Setting ownership to ${SERVICE_USER}:${SERVICE_USER}"
+  chown -R "${SERVICE_USER}:${SERVICE_USER}" "${APP_DIR}"
+
+  log "Locking down .env"
+  if [[ -f "${APP_DIR}/.env" ]]; then
+    chmod 640 "${APP_DIR}/.env"
+  fi
+
+  log "Ensuring backend/frontend directories readable"
+  chmod -R 750 "${APP_DIR}/backend" "${APP_DIR}/frontend"
+}
+
 configure_systemd() {
   if [[ $SKIP_SYSTEMD -eq 1 ]]; then
     return
