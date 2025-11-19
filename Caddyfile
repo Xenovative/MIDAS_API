@@ -1,6 +1,6 @@
 :80 {
   @api path /api/*
-  reverse_proxy @api midas-backend:8000
+  reverse_proxy @api 127.0.0.1:8000
 
-  reverse_proxy midas-frontend:80
+  reverse_proxy 127.0.0.1:3000
 }
