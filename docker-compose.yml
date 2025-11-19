@@ -16,6 +16,8 @@ services:
     ports:
       - "8000:8000"
     depends_on: []
+    networks:
+      - midas_net
 
   frontend:
     build:
@@ -29,6 +31,8 @@ services:
       - "3000:80"
     depends_on:
       - backend
+    networks:
+      - midas_net
 
   proxy:
     image: caddy:2
@@ -40,6 +44,11 @@ services:
     depends_on:
       - backend
       - frontend
+    networks:
+      - midas_net
 
 volumes:
   backend_data:
+
+networks:
+  midas_net:
