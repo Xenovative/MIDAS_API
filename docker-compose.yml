@@ -20,13 +20,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-      args:
-        VITE_API_BASE_URL: "http://localhost:8000/api"
     image: midas-frontend:latest
     ports:
       - "3000:80"
     depends_on:
       - backend
+
+  proxy:
+    image: caddy:2
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
 
 volumes:
   backend_data:
