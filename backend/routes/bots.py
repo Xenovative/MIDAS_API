@@ -21,6 +21,9 @@ class BotCreate(BaseModel):
     temperature: float = 0.7
     max_tokens: Optional[int] = None
     is_public: bool = False
+    use_rag: bool = False
+    rag_top_k: int = 5
+    rag_similarity_threshold: float = 0.7
 
 
 class BotUpdate(BaseModel):
@@ -34,6 +37,9 @@ class BotUpdate(BaseModel):
     max_tokens: Optional[int] = None
     is_public: Optional[bool] = None
     is_active: Optional[bool] = None
+    use_rag: Optional[bool] = None
+    rag_top_k: Optional[int] = None
+    rag_similarity_threshold: Optional[float] = None
 
 
 class BotResponse(BaseModel):
@@ -51,6 +57,9 @@ class BotResponse(BaseModel):
     creator_id: str
     is_public: bool
     is_active: bool
+    use_rag: bool
+    rag_top_k: int
+    rag_similarity_threshold: float
     created_at: datetime
     updated_at: datetime
 
@@ -76,7 +85,10 @@ async def create_bot(
             temperature=bot_data.temperature,
             max_tokens=bot_data.max_tokens,
             creator_id=current_user.id,
-            is_public=bot_data.is_public
+            is_public=bot_data.is_public,
+            use_rag=bot_data.use_rag,
+            rag_top_k=bot_data.rag_top_k,
+            rag_similarity_threshold=bot_data.rag_similarity_threshold
         )
         
         db.add(bot)

@@ -4,6 +4,9 @@ from typing import Optional, List
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 import httpx
+import base64
+import io
+from PIL import Image
 from backend.config import settings
 
 
@@ -17,9 +20,10 @@ class ImageProvider(ABC):
         size: str = "1024x1024",
         quality: str = "standard",
         style: Optional[str] = None,
-        n: int = 1
+        n: int = 1,
+        image: Optional[str] = None  # Base64 encoded image for img2img
     ) -> List[dict]:
-        """Generate images from prompt"""
+        """Generate images from prompt, optionally with image input"""
         pass
     
     @abstractmethod
@@ -41,31 +45,218 @@ class OpenAIImageProvider(ImageProvider):
         quality: str = "standard",
         style: Optional[str] = None,
         n: int = 1,
-        model: str = "dall-e-3"
+        model: str = "dall-e-3",
+        image: Optional[str] = None,
+        reference_images: Optional[List[str]] = None,
+        image_fidelity: str = "high",
+        moderation: str = "low"
     ) -> List[dict]:
         if not self.client:
             raise ValueError("OpenAI API key not configured")
         
-        params = {
-            "model": model,
-            "prompt": prompt,
-            "size": size,
-            "quality": quality,
-            "n": n
-        }
+        # Image editing support:
+        # - DALL-E 2: Supports images.edit() and images.create_variation()
+        # - GPT-Image-1: Supports images.edit() with different parameters
+        # - DALL-E 3: Text-to-image only
+        if image and model == "dall-e-2":
+            # Decode base64 image
+            image_bytes = base64.b64decode(image)
+            
+            # Open and process image
+            img = Image.open(io.BytesIO(image_bytes))
+            
+            # Make image square by center cropping (required by OpenAI)
+            width, height = img.size
+            target_size = min(width, height)
+            
+            # Calculate crop box for center crop
+            left = (width - target_size) // 2
+            top = (height - target_size) // 2
+            right = left + target_size
+            bottom = top + target_size
+            
+            square_img = img.crop((left, top, right, bottom))
+            
+            # Convert to RGBA if needed
+            if square_img.mode != 'RGBA':
+                square_img = square_img.convert('RGBA')
+            
+            # Resize to match requested size
+            size_map = {"256x256": 256, "512x512": 512, "1024x1024": 1024}
+            target_dim = size_map.get(size, 1024)
+            if target_size != target_dim:
+                square_img = square_img.resize((target_dim, target_dim), Image.Resampling.LANCZOS)
+            
+            # Save as PNG to BytesIO
+            image_file = io.BytesIO()
+            square_img.save(image_file, format='PNG')
+            image_file.seek(0)
+            image_file.name = "image.png"
+            
+            # Use edit endpoint with prompt, or variation without
+            if prompt and prompt.strip():
+                # Edit endpoint - transforms based on prompt
+                response = await self.client.images.edit(
+                    image=image_file,
+                    prompt=prompt,
+                    n=n,
+                    size=size if size in ["256x256", "512x512", "1024x1024"] else "1024x1024"
+                )
+            else:
+                # Variation endpoint - creates variations
+                response = await self.client.images.create_variation(
+                    image=image_file,
+                    n=n,
+                    size=size if size in ["256x256", "512x512", "1024x1024"] else "1024x1024"
+                )
+            
+            return [
+                {
+                    "url": img_result.url,
+                    "revised_prompt": None
+                }
+                for img_result in response.data
+            ]
         
-        if style and model == "dall-e-3":
-            params["style"] = style
-        
-        response = await self.client.images.generate(**params)
-        
-        return [
-            {
-                "url": img.url,
-                "revised_prompt": getattr(img, "revised_prompt", None)
+        # Check if this is image editing (gpt-image-1 with input image)
+        if image and model == "gpt-image-1":
+            print(f"📷 Using images.edit for gpt-image-1 image editing")
+            # Convert base64 to bytes
+            image_bytes = base64.b64decode(image)
+            
+            # Create a file-like object for the image
+            image_file = io.BytesIO(image_bytes)
+            image_file.name = "image.png"
+            
+            # GPT-Image-1 images.edit() parameters
+            # NOTE: images.edit() does NOT support 'quality' parameter
+            # Quality is only for images.generate()
+            params = {
+                "image": image_file,
+                "prompt": prompt,
+                "model": model,
+                "n": n,
+                "size": size
             }
-            for img in response.data
-        ]
+            
+            print(f"📤 Calling OpenAI images.edit with GPT-Image-1")
+            print(f"   Parameters: model={model}, size={size}, n={n}")
+            response = await self.client.images.edit(**params)
+        elif reference_images and model == "gpt-image-1":
+            # Image references for GPT-Image-1
+            # Use direct HTTP API call for multiple image references
+            print(f"🎨 Using image references for GPT-Image-1")
+            print(f"   Number of reference images: {len(reference_images)}")
+            
+            # Get API key
+            api_key = settings.openai_api_key
+            
+            # Prepare form data with array syntax
+            # OpenAI requires 'image[]' for multiple images, not multiple 'image' fields
+            files = []
+            for idx, ref_img in enumerate(reference_images):
+                ref_bytes = base64.b64decode(ref_img)
+                files.append(
+                    ('image[]', (f'reference_{idx}.png', ref_bytes, 'image/png'))
+                )
+            
+            # Prepare other parameters
+            data = {
+                'model': model,
+                'prompt': prompt,
+                'size': size,
+                'n': str(n),
+                'input_fidelity': image_fidelity,
+                'moderation': moderation
+            }
+            
+            print(f"📤 Calling OpenAI images.edit API directly with {len(files)} images")
+            print(f"   Parameters: model={model}, size={size}, n={n}")
+            print(f"   Files: {[(name, fname) for name, (fname, _, _) in files]}")
+            print(f"   Data: {data}")
+            
+            # Make direct HTTP call
+            # Image generation can take a while, especially with multiple reference images
+            async with httpx.AsyncClient(timeout=180.0) as http_client:
+                api_response = await http_client.post(
+                    'https://api.openai.com/v1/images/edits',
+                    headers={
+                        'Authorization': f'Bearer {api_key}'
+                    },
+                    files=files,
+                    data=data
+                )
+                
+                # Log response for debugging
+                if api_response.status_code != 200:
+                    print(f"❌ API Error {api_response.status_code}")
+                    print(f"Response: {api_response.text}")
+                
+                api_response.raise_for_status()
+                response_data = api_response.json()
+            
+            # Convert response to match OpenAI SDK format
+            class ImageResponse:
+                def __init__(self, data):
+                    self.data = []
+                    for img_data in data.get('data', []):
+                        img_obj = type('ImageObject', (), {})()
+                        img_obj.url = img_data.get('url')
+                        img_obj.b64_json = img_data.get('b64_json')
+                        img_obj.revised_prompt = img_data.get('revised_prompt')
+                        self.data.append(img_obj)
+            
+            response = ImageResponse(response_data)
+            print(f"✅ Received response with {len(response.data)} images")
+        else:
+            # Standard text-to-image generation
+            params = {
+                "model": model,
+                "prompt": prompt,
+                "size": size,
+                "n": n
+            }
+            
+            # Map quality based on model
+            if model == "gpt-image-1":
+                # gpt-image-1 uses: low, medium, high, auto
+                quality_map = {
+                    "standard": "medium",
+                    "hd": "high"
+                }
+                params["quality"] = quality_map.get(quality, "auto")
+            else:
+                # DALL-E uses: standard, hd
+                params["quality"] = quality
+            
+            if style and model == "dall-e-3":
+                params["style"] = style
+            
+            print(f"📤 Calling OpenAI images.generate with params: {params}")
+            response = await self.client.images.generate(**params)
+        print(f"📥 OpenAI response type: {type(response)}")
+        print(f"📥 Response data length: {len(response.data)}")
+        
+        results = []
+        for img in response.data:
+            # Handle both url and b64_json formats
+            if hasattr(img, 'url') and img.url:
+                url = img.url
+                print(f"✅ Got URL response")
+            elif hasattr(img, 'b64_json') and img.b64_json:
+                # Convert b64_json to data URL
+                url = f"data:image/png;base64,{img.b64_json}"
+                print(f"✅ Got b64_json response, converted to data URL")
+            else:
+                print(f"⚠️ Image object has neither url nor b64_json")
+                url = None
+            
+            results.append({
+                "url": url,
+                "revised_prompt": getattr(img, "revised_prompt", None)
+            })
+        
+        return results
     
     def get_available_models(self) -> List[dict]:
         if not settings.openai_api_key:
@@ -119,10 +310,16 @@ class StabilityAIProvider(ImageProvider):
         quality: str = "standard",
         style: Optional[str] = None,
         n: int = 1,
-        model: str = "stable-diffusion-xl-1024-v1-0"
+        model: str = "stable-diffusion-xl-1024-v1-0",
+        image: Optional[str] = None
     ) -> List[dict]:
         if not self.api_key:
             raise ValueError("Stability AI API key not configured")
+        
+        # Note: Stability AI img2img requires different endpoint
+        # For now, we'll just do text-to-image
+        if image:
+            raise NotImplementedError("Stability AI img2img not yet implemented")
         
         # Parse size
         width, height = map(int, size.split('x'))
@@ -212,10 +409,16 @@ class ReplicateProvider(ImageProvider):
         quality: str = "standard",
         style: Optional[str] = None,
         n: int = 1,
-        model: str = "stability-ai/sdxl"
+        model: str = "stability-ai/sdxl",
+        image: Optional[str] = None
     ) -> List[dict]:
         if not self.api_key:
             raise ValueError("Replicate API key not configured")
+        
+        # Note: Replicate img2img requires different model versions
+        # For now, we'll just do text-to-image
+        if image:
+            raise NotImplementedError("Replicate img2img not yet implemented")
         
         width, height = map(int, size.split('x'))
         
@@ -323,11 +526,15 @@ class ImageProviderManager:
     async def generate(
         self,
         prompt: str,
-        model: str,
+        model: str = "dall-e-3",
         size: str = "1024x1024",
         quality: str = "standard",
         style: Optional[str] = None,
-        n: int = 1
+        n: int = 1,
+        image: Optional[str] = None,
+        reference_images: Optional[List[str]] = None,
+        image_fidelity: str = "high",
+        moderation: str = "low"
     ) -> List[dict]:
         """Generate images using the specified model"""
         # Find which provider has this model
@@ -340,10 +547,14 @@ class ImageProviderManager:
                     quality=quality,
                     style=style,
                     n=n,
-                    model=model
+                    model=model,
+                    image=image,
+                    reference_images=reference_images,
+                    image_fidelity=image_fidelity,
+                    moderation=moderation
                 )
         
-        raise ValueError(f"Model not found: {model}")
+        raise ValueError(f"Model {model} not found in any provider")
 
 
 # Global instance

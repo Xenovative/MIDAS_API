@@ -49,7 +49,8 @@ class OpenAIProvider(LLMProvider):
         model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        stream: bool = False
+        stream: bool = False,
+        tools: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         if not self.is_available():
             raise ValueError("OpenAI API key not configured")
@@ -65,20 +66,103 @@ class OpenAIProvider(LLMProvider):
             params["temperature"] = temperature
         
         # Handle max_tokens (skip for models that don't support the parameter)
+        # O1/O3 models use max_completion_tokens instead of max_tokens
         if max_tokens:
             lower_model = model.lower()
-            if any(lower_model.startswith(prefix) for prefix in ['gpt-5', 'o1', 'o3']):
-                pass  # These models ignore max tokens
+            if any(lower_model.startswith(prefix) for prefix in ['o1', 'o3']):
+                params["max_completion_tokens"] = max_tokens
+            elif lower_model.startswith('gpt-5'):
+                pass  # GPT-5 models might not support this yet
             else:
                 params["max_tokens"] = max_tokens
         
+        # Add tools if provided
+        if tools:
+            params["tools"] = tools
+        
         response = await self.client.chat.completions.create(**params)
         
-        return {
+        result = {
             "content": response.choices[0].message.content,
             "model": response.model,
             "tokens": response.usage.total_tokens if response.usage else None
         }
+        
+        # Include tool calls if present
+        if response.choices[0].message.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                }
+                for tc in response.choices[0].message.tool_calls
+            ]
+        
+        return result
+    
+    async def chat_with_reasoning(
+        self,
+        messages: List[Dict[str, str]],
+        model: str,
+        reasoning_effort: str = "medium",
+        max_completion_tokens: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Chat with O1/O3 reasoning models
+        
+        O1 models only support minimal parameters:
+        - model
+        - messages
+        
+        They do NOT support:
+        - temperature
+        - max_tokens / max_completion_tokens
+        - top_p
+        - frequency_penalty
+        - presence_penalty
+        
+        Args:
+            messages: List of messages
+            model: Model name (o1-preview, o1-mini, o3-mini, etc.)
+            reasoning_effort: Ignored (for future compatibility)
+            max_completion_tokens: Ignored (not supported by O1)
+        
+        Returns:
+            Response dict with content and usage
+        """
+        if not self.is_available():
+            raise ValueError("OpenAI API key not configured")
+        
+        # O1 models only accept model and messages
+        params = {
+            "model": model,
+            "messages": messages,
+        }
+        
+        print(f"🔬 Calling O1/O3 model: {model}")
+        print(f"   → Using minimal parameters (O1 models have fixed settings)")
+        
+        try:
+            response = await self.client.chat.completions.create(**params)
+            
+            result = {
+                "content": response.choices[0].message.content,
+                "model": response.model,
+                "usage": {
+                    "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                    "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "total_tokens": response.usage.total_tokens if response.usage else 0
+                }
+            }
+            
+            return result
+        except Exception as e:
+            print(f"❌ Error calling O1/O3: {e}")
+            raise
     
     async def chat_stream(
         self,
@@ -94,7 +178,12 @@ class OpenAIProvider(LLMProvider):
         print(f"Temperature requested: {temperature}")
         print(f"Messages received: {len(messages)} messages")
         for i, msg in enumerate(messages):
-            print(f"  Message {i}: role={msg.get('role')}, content={msg.get('content', '')[:100]}...")
+            content = msg.get('content', '')
+            if isinstance(content, list):
+                print(f"  Message {i}: role={msg.get('role')}, content=<multimodal list with {len(content)} items>")
+            else:
+                preview = content[:100] if len(content) <= 100000 else f"<large content {len(content)} chars>"
+                print(f"  Message {i}: role={msg.get('role')}, content={preview}...")
         
         params = {
             "model": model,

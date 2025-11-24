@@ -49,9 +49,14 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = None
     use_agent: bool = False
     use_realtime_data: bool = False
+    use_deep_research: bool = False
     system_prompt: Optional[str] = None
     bot_id: Optional[str] = None
     bot_name: Optional[str] = None
+    image_model: Optional[str] = "gpt-image-1"
+    image_size: Optional[str] = "1024x1024"  # Image generation size
+    image_fidelity: Optional[str] = "high"  # Image fidelity: low, medium, high
+    moderation: Optional[str] = "low"  # Content moderation: low, medium, high
 
 
 class ChatResponse(BaseModel):

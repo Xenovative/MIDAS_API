@@ -107,9 +107,19 @@ export const useStore = create((set, get) => ({
   temperature: 0.7,
   maxTokens: null,
   useAgent: false,
+  imageRatio: '1:1',
+  imageSize: '1024x1024',
   useRealtimeData: (() => {
     try {
       const stored = localStorage.getItem('useRealtimeData')
+      return stored ? JSON.parse(stored) : false
+    } catch {
+      return false
+    }
+  })(),
+  useDeepResearch: (() => {
+    try {
+      const stored = localStorage.getItem('useDeepResearch')
       return stored ? JSON.parse(stored) : false
     } catch {
       return false
@@ -120,6 +130,7 @@ export const useStore = create((set, get) => ({
   setTemperature: (temperature) => set({ temperature }),
   setMaxTokens: (maxTokens) => set({ maxTokens }),
   setUseAgent: (useAgent) => set({ useAgent }),
+  setImageRatio: (ratio, size) => set({ imageRatio: ratio, imageSize: size }),
   setUseRealtimeData: (useRealtimeData) => {
     try {
       localStorage.setItem('useRealtimeData', JSON.stringify(useRealtimeData))
@@ -127,6 +138,14 @@ export const useStore = create((set, get) => ({
       console.warn('Failed to persist realtime toggle', err)
     }
     set({ useRealtimeData })
+  },
+  setUseDeepResearch: (useDeepResearch) => {
+    try {
+      localStorage.setItem('useDeepResearch', JSON.stringify(useDeepResearch))
+    } catch (err) {
+      console.warn('Failed to persist deep research toggle', err)
+    }
+    set({ useDeepResearch })
   },
   setStreamResponse: (streamResponse) => set({ streamResponse }),
   setSystemPrompt: (systemPrompt) => set({ systemPrompt }),

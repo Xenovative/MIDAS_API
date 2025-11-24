@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.config import settings
 from backend.database import init_db
-from backend.routes import conversations, chat, models, tools, config, generation, auth, admin, suggestions, bots
+from backend.routes import conversations, chat, models, tools, config, generation, auth, admin, suggestions, bots, documents
 
 
 @asynccontextmanager
@@ -15,12 +15,17 @@ async def lifespan(app: FastAPI):
     pass
 
 
+from fastapi.staticfiles import StaticFiles
+
 app = FastAPI(
     title="MIDAS API",
     description="AI Agentic Platform API",
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 # CORS
 app.add_middleware(
@@ -42,6 +47,7 @@ app.include_router(config.router)
 app.include_router(generation.router)
 app.include_router(suggestions.router)
 app.include_router(bots.router)
+app.include_router(documents.router)
 
 
 @app.get("/")

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import httpx
 from bs4 import BeautifulSoup
 import json
@@ -266,12 +266,56 @@ class CalculatorTool(AgentTool):
             }
 
 
+class ImageGenerationTool(AgentTool):
+    def __init__(self):
+        self.name = "generate_image"
+        self.description = "Generate or transform images based on text descriptions. Use this when the user asks to: create/generate/draw a new image, OR transform/modify/edit an uploaded image (e.g., add glasses, change style, apply effects). If an image is uploaded, it will be used as the base for transformation. Returns the URL of the generated image."
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed description of the image to generate. Be specific about style, composition, colors, mood, etc."
+                },
+                "style": {
+                    "type": "string",
+                    "enum": ["vivid", "natural"],
+                    "description": "Style of the generated image. 'vivid' for hyper-real and dramatic, 'natural' for more natural and less hyper-real."
+                }
+            },
+            "required": ["prompt"]
+        }
+    
+    async def execute(self, prompt: str, style: Optional[str] = None, uploaded_image: Optional[str] = None) -> Dict[str, Any]:
+        """Execute image generation"""
+        try:
+            from backend.routes.chat import generate_image_from_prompt
+            
+            result = await generate_image_from_prompt(
+                prompt=prompt,
+                model="gpt-image-1",
+                image=uploaded_image
+            )
+            
+            return {
+                "success": True,
+                "image_url": result["url"],
+                "revised_prompt": result.get("revised_prompt")
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+
 class AgentToolManager:
     def __init__(self):
         self.tools = {
             "web_search": WebSearchTool(),
             "web_scrape": WebScrapeTool(),
-            "calculator": CalculatorTool()
+            "calculator": CalculatorTool(),
+            "generate_image": ImageGenerationTool()
         }
     
     def get_tool(self, tool_name: str) -> AgentTool:

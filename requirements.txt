@@ -34,3 +34,10 @@ fastapi-cors==0.0.6
 
 # Utilities
 aiofiles==23.2.1
+Pillow==10.1.0
+numpy==1.26.2
+
+# Document parsing
+PyPDF2==3.0.1
+python-docx==1.1.0
+python-magic-bin==0.4.14

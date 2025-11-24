@@ -4,7 +4,8 @@ import { chatApi, conversationsApi } from '../lib/api'
 import ChatMessage from './ChatMessage'
 import ChatInput from './ChatInput'
 import ArtifactViewer from './ArtifactViewer'
-import { Plus, Activity } from 'lucide-react'
+import ImageRatioSelector from './ImageRatioSelector'
+import { Plus, Activity, Brain } from 'lucide-react'
 
 export default function ChatArea() {
   const {
@@ -18,10 +19,15 @@ export default function ChatArea() {
     setTemperature,
     useAgent,
     useRealtimeData,
+    useDeepResearch,
+    setUseDeepResearch,
     systemPrompt,
     setSystemPrompt,
     maxTokens,
     setMaxTokens,
+    imageRatio,
+    imageSize,
+    setImageRatio,
     addMessage,
     setCurrentConversation,
     addConversation,
@@ -188,7 +194,43 @@ export default function ChatArea() {
     setCurrentArtifact(artifact)
   }
 
-  const handleSendMessage = async (message, images = []) => {
+  const handleImageIntent = () => {
+    // Check if current model supports vision
+    const currentModelInfo = providers
+      .flatMap(p => p.models)
+      .find(m => m.id === selectedModel && m.provider === selectedProvider)
+    
+    if (currentModelInfo?.supports_vision) return
+
+    console.log('🎨 Image intent detected, switching to vision-capable model...')
+
+    // Find a vision model
+    // 1. Try to find one from the same provider
+    let visionModel = providers
+      .find(p => p.provider === selectedProvider)
+      ?.models.find(m => m.supports_vision)
+
+    // 2. If not, try OpenAI (gpt-4o/turbo)
+    if (!visionModel) {
+      visionModel = providers
+        .find(p => p.provider === 'openai')
+        ?.models.find(m => m.supports_vision && (m.id.includes('gpt-4') || m.id.includes('vision')))
+    }
+
+    // 3. If still not, take any vision model
+    if (!visionModel) {
+      visionModel = providers
+        .flatMap(p => p.models)
+        .find(m => m.supports_vision)
+    }
+
+    if (visionModel) {
+      console.log('🔄 Switching to vision model:', visionModel.id)
+      setSelectedModel(visionModel.id, visionModel.provider)
+    }
+  }
+
+  const handleSendMessage = async (message, images = [], imageModel = null) => {
     if (!selectedModel || !selectedProvider) {
       alert('Please select a model first')
       return
@@ -197,13 +239,19 @@ export default function ChatArea() {
     setIsLoading(true)
     setStreamingMessage('')
 
-    // Add user message immediately to UI
+    // Add user message immediately to UI with images
     const userMessage = {
       id: `temp-${Date.now()}`,
       conversation_id: currentConversation?.id,
       role: 'user',
       content: message,
       created_at: new Date().toISOString(),
+      meta_data: images.length > 0 ? { 
+        images: images.map(img => ({
+          data: img.data,
+          type: img.type || 'image/png'
+        }))
+      } : null
     }
     
     // Add to current conversation if it exists
@@ -220,14 +268,19 @@ export default function ChatArea() {
         temperature,
         use_agent: useAgent,
         use_realtime_data: useRealtimeData,
+        use_deep_research: useDeepResearch,
+        image_model: imageModel,
+        image_size: imageSize,
       }
       
       console.log('💬 Sending chat request:')
       console.log('Model:', selectedModel, 'Provider:', selectedProvider)
+      console.log('Image Model:', imageModel)
       console.log('Temperature:', temperature)
       console.log('System prompt:', systemPrompt ? systemPrompt.substring(0, 100) + '...' : 'None')
       console.log('Selected bot:', selectedBot?.name || 'None')
       console.log('Realtime data:', useRealtimeData)
+      console.log('Deep research:', useDeepResearch)
       
       // Add system prompt if set
       if (systemPrompt) {
@@ -298,10 +351,24 @@ export default function ChatArea() {
               }
               setCurrentConversation(newConversation)
               addConversation(newConversation)
+            } else {
+              // Update existing conversation with new ID if needed
+              if (currentConversation.id !== conversationId) {
+                const updatedConversation = {
+                  ...currentConversation,
+                  id: conversationId
+                }
+                setCurrentConversation(updatedConversation)
+                addConversation(updatedConversation)
+              }
             }
           } else if (data.type === 'content') {
             fullContent += data.content
             setStreamingMessage(fullContent)
+          } else if (data.type === 'image') {
+            // Image generation started - show loading placeholder
+            console.log('🎨 Image generating:', data.url)
+            // The image will be included in the final 'done' event
           } else if (data.type === 'agent_executions') {
             setAgentExecutions(prev => [...prev, ...data.executions])
           } else if (data.type === 'title') {
@@ -322,6 +389,7 @@ export default function ChatArea() {
               content: fullContent,
               model: selectedModel,
               created_at: new Date().toISOString(),
+              meta_data: data.meta_data || null // Include images and agent executions
             }
             addMessage(assistantMessage)
             setStreamingMessage('')
@@ -373,22 +441,62 @@ export default function ChatArea() {
             </div>
           </div>
           
-          {/* New Chat Button */}
-          <button
-            onClick={async () => {
-              try {
-                const response = await conversationsApi.create('New Conversation')
-                addConversation(response.data)
-                setCurrentConversation(response.data)
-              } catch (error) {
-                console.error('Failed to create conversation:', error)
-              }
-            }}
-            className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
-          >
-            <Plus size={16} />
-            New Chat
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Image Ratio Selector - Show only for GPT-Image-1 */}
+            {selectedModel === 'gpt-image-1' && (
+              <ImageRatioSelector
+                selectedRatio={imageRatio}
+                onRatioChange={setImageRatio}
+              />
+            )}
+            
+            {/* Deep Research Toggle - Show for all RAG-enabled bots */}
+            {(() => {
+              const shouldShow = selectedBot?.use_rag || currentConversation?.id
+              console.log('🔬 Deep Research Toggle visibility:', {
+                shouldShow,
+                'selectedBot?.use_rag': selectedBot?.use_rag,
+                'currentConversation?.id': currentConversation?.id
+              })
+              return shouldShow
+            })() && (
+              <button
+                onClick={() => {
+                  console.log('🔬 Deep Research toggled:', !useDeepResearch)
+                  setUseDeepResearch(!useDeepResearch)
+                }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-sm ${
+                  useDeepResearch
+                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
+                title={useDeepResearch ? 'Deep Research: ON (uses o1-mini for complex analysis)' : 'Deep Research: OFF (fast retrieval)'}
+              >
+                <Brain size={16} className={useDeepResearch ? 'animate-pulse' : ''} />
+                <span className="font-medium">Deep Research</span>
+                {useDeepResearch && (
+                  <span className="text-xs bg-purple-500/30 px-1.5 py-0.5 rounded">ON</span>
+                )}
+              </button>
+            )}
+            
+            {/* New Chat Button */}
+            <button
+              onClick={async () => {
+                try {
+                  const response = await conversationsApi.create('New Conversation')
+                  addConversation(response.data)
+                  setCurrentConversation(response.data)
+                } catch (error) {
+                  console.error('Failed to create conversation:', error)
+                }
+              }}
+              className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm"
+            >
+              <Plus size={16} />
+              New Chat
+            </button>
+          </div>
         </div>
       )}
       
@@ -407,13 +515,24 @@ export default function ChatArea() {
           </div>
         ) : (
           <>
-            {currentConversation.messages.map((message, index) => {
-              // Find the previous user message for context
+            {currentConversation?.messages?.map((message, index) => {
+              // Find previous user message for suggestions
               let previousUserMessage = null
+              let previousAssistantMessage = null
+              
               if (message.role === 'assistant') {
+                // Find previous user message
                 for (let i = index - 1; i >= 0; i--) {
                   if (currentConversation.messages[i].role === 'user') {
                     previousUserMessage = currentConversation.messages[i].content
+                    break
+                  }
+                }
+                
+                // Find previous assistant message (for multi-turn image refinement)
+                for (let i = index - 1; i >= 0; i--) {
+                  if (currentConversation.messages[i].role === 'assistant') {
+                    previousAssistantMessage = currentConversation.messages[i]
                     break
                   }
                 }
@@ -429,6 +548,7 @@ export default function ChatArea() {
                   onArtifactClick={handleArtifactClick}
                   isLastMessage={index === currentConversation.messages.length - 1 && !streamingMessage}
                   previousUserMessage={previousUserMessage}
+                  previousAssistantMessage={previousAssistantMessage}
                 />
               )
             })}
@@ -451,6 +571,9 @@ export default function ChatArea() {
       <ChatInput 
         onSend={handleSendMessage} 
         disabled={isLoading}
+        onImageIntent={handleImageIntent}
+        selectedBot={selectedBot}
+        conversationId={currentConversation?.id}
         supportsVision={
           providers
             .flatMap(p => p.models)

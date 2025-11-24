@@ -7,6 +7,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { cn } from '../lib/utils'
 import { generationApi, suggestionsApi } from '../lib/api'
 import MarkdownImage from './MarkdownImage'
+import ImageLoadingPlaceholder from './ImageLoadingPlaceholder'
 import { parseArtifacts } from '../lib/artifactParser'
 
 const MAX_URL_DISPLAY = 70
@@ -37,7 +38,8 @@ export default function ChatMessage({
   onSuggestionClick,
   onArtifactClick,
   isLastMessage = false,
-  previousUserMessage = null
+  previousUserMessage = null,
+  previousAssistantMessage = null
 }) {
   const isUser = message.role === 'user'
   const [isPlaying, setIsPlaying] = useState(false)
@@ -49,6 +51,19 @@ export default function ChatMessage({
   
   // Parse artifacts from message content
   const { artifacts, contentWithoutArtifacts } = parseArtifacts(message.content)
+  
+  // Check if this is an image generation in progress
+  const isGeneratingImage = !isUser && 
+    (message.content.includes('🎨 Generating image') || 
+     message.content.includes('🔄 Refining previous image')) &&
+    (!message.meta_data?.images || message.meta_data.images.length === 0) &&
+    !message.content.includes('❌') && // Don't show placeholder if there's an error
+    !message.content.includes('🚫') && // Don't show placeholder for policy violations
+    !message.content.includes('⏱️') && // Don't show placeholder for rate limits
+    !message.content.includes('💳')    // Don't show placeholder for quota errors
+  
+  // Get previous image for multi-turn refinement
+  const previousImage = previousAssistantMessage?.meta_data?.images?.[0] || null
 
   // Generate AI-powered suggestions when component mounts for last message
   useEffect(() => {
@@ -289,6 +304,54 @@ export default function ChatMessage({
             </button>
           )}
         </div>
+        
+        {/* Display loading placeholder for image generation */}
+        {isGeneratingImage && (
+          <ImageLoadingPlaceholder 
+            message={message.content.includes('🔄 Refining') ? "Refining image..." : "Generating image..."}
+            previousImage={message.content.includes('🔄 Refining') ? previousImage : null}
+          />
+        )}
+        
+        {/* Display images (uploaded for user, generated for assistant) */}
+        {message.meta_data?.images && message.meta_data.images.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {message.meta_data.images.map((img, idx) => {
+              // Handle different image formats:
+              // 1. String: HTTP/HTTPS URLs, /static/ paths, data: URLs, or raw base64
+              // 2. Object: { data: base64, type: mime-type } from temporary messages
+              let imageSrc
+              
+              if (typeof img === 'object' && img.data) {
+                // New format: object with data and type
+                imageSrc = `data:${img.type};base64,${img.data}`
+                console.log(`Image ${idx} (object):`, { type: img.type, dataLength: img.data.length })
+              } else if (typeof img === 'string') {
+                // Old format: string (URL, path, or base64)
+                if (img.startsWith('http') || img.startsWith('/') || img.startsWith('data:')) {
+                  imageSrc = img
+                } else {
+                  // Raw base64 without prefix
+                  imageSrc = `data:image/png;base64,${img}`
+                }
+                console.log(`Image ${idx} (string):`, { 
+                  length: img.length, 
+                  prefix: img.substring(0, 30),
+                  finalSrc: imageSrc.substring(0, 50)
+                })
+              }
+              
+              return (
+                <MarkdownImage
+                  key={idx}
+                  src={imageSrc}
+                  alt={isUser ? `Uploaded ${idx + 1}` : `Generated ${idx + 1}`}
+                />
+              )
+            })}
+          </div>
+        )}
+        
         <div className="markdown-content prose prose-sm max-w-none">
           <ReactMarkdown 
             remarkPlugins={[remarkGfm]}

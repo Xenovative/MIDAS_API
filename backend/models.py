@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, Text, DateTime, Integer, JSON, ForeignKey, Boolean, Float
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, deferred
 from datetime import datetime
 from backend.database import Base
 import uuid
@@ -58,6 +58,11 @@ class Bot(Base):
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer)
     
+    # RAG settings
+    use_rag = Column(Boolean, default=False)
+    rag_top_k = Column(Integer, default=5)  # Number of chunks to retrieve
+    rag_similarity_threshold = Column(Float, default=0.7)  # Minimum similarity score
+    
     # Metadata
     creator_id = Column(String, ForeignKey("users.id"), nullable=False)
     is_public = Column(Boolean, default=False)
@@ -113,3 +118,40 @@ class AgentExecution(Base):
     status = Column(String, nullable=False)  # pending, success, error
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Document(Base):
+    """RAG documents associated with bots or conversations"""
+    __tablename__ = "documents"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    bot_id = Column(String, ForeignKey("bots.id"), nullable=True)  # Optional - for bot-level docs
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)  # Optional - for conversation-level docs
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)  # Optional - for user-level docs
+    filename = Column(String, nullable=False)
+    content = deferred(Column(Text, nullable=False))  # Deferred loading to save memory
+    chunk_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    bot = relationship("Bot", backref="documents")
+    conversation = relationship("Conversation", backref="documents")
+    user = relationship("User", backref="documents")
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentChunk(Base):
+    """Text chunks with embeddings for RAG"""
+    __tablename__ = "document_chunks"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    document_id = Column(String, ForeignKey("documents.id"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(JSON, nullable=False)  # Store as JSON array
+    start_char = Column(Integer, nullable=False)
+    end_char = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    document = relationship("Document", back_populates="chunks")

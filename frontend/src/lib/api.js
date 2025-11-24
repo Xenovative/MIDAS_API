@@ -93,6 +93,64 @@ export const botsApi = {
   delete: (id) => api.delete(`/bots/${id}`),
 }
 
+export const documentsApi = {
+  upload: (data) => api.post('/documents/upload', data),
+  uploadFile: (file, botId = null, conversationId = null) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const params = new URLSearchParams()
+    if (botId) params.append('bot_id', botId)
+    if (conversationId) params.append('conversation_id', conversationId)
+    return api.post(`/documents/upload-file?${params.toString()}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  uploadFileWithProgress: async (file, botId = null, conversationId = null, onProgress) => {
+    const params = new URLSearchParams()
+    if (botId) params.append('bot_id', botId)
+    if (conversationId) params.append('conversation_id', conversationId)
+    
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    // Get auth token from localStorage
+    const token = localStorage.getItem('auth_token')
+    const headers = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/documents/upload-file-stream?${params.toString()}`, {
+      method: 'POST',
+      headers: headers,
+      body: formData
+    })
+    
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      
+      const chunk = decoder.decode(value)
+      const lines = chunk.split('\n')
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = JSON.parse(line.slice(6))
+          if (onProgress) onProgress(data)
+          if (data.error) throw new Error(data.error)
+          if (data.document) return data.document
+        }
+      }
+    }
+  },
+  list: (botId) => api.get(`/documents/bot/${botId}`),
+  delete: (documentId) => api.delete(`/documents/${documentId}`),
+  search: (data) => api.post('/documents/search', data),
+}
+
 export const authApi = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),

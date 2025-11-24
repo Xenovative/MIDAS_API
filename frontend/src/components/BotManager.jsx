@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Plus, Edit2, Trash2, MessageSquare, Globe, Lock, X, Save } from 'lucide-react'
+import { Plus, Edit2, Trash2, MessageSquare, Globe, Lock, X, Save, BookOpen, FileText } from 'lucide-react'
 import { botsApi } from '../lib/api'
 import { useStore } from '../store/useStore'
+import DocumentManager from './DocumentManager'
 
 export default function BotManager({ onClose, onSelectBot }) {
   const { providers } = useStore()
@@ -18,8 +19,12 @@ export default function BotManager({ onClose, onSelectBot }) {
     default_provider: '',
     temperature: 0.7,
     max_tokens: null,
-    is_public: false
+    is_public: false,
+    use_rag: false,
+    rag_top_k: 5,
+    rag_similarity_threshold: 0.7
   })
+  const [showDocManager, setShowDocManager] = useState(null)
 
   // Get all available models grouped by provider
   const availableModels = providers.flatMap(provider => 
@@ -60,6 +65,9 @@ export default function BotManager({ onClose, onSelectBot }) {
         default_model: formData.default_model || null,
         default_provider: formData.default_provider || null,
         max_tokens: formData.max_tokens || null,
+        use_rag: formData.use_rag,
+        rag_top_k: formData.rag_top_k,
+        rag_similarity_threshold: formData.rag_similarity_threshold
       }
       console.log('Creating bot with data:', cleanData)
       const response = await botsApi.create(cleanData)
@@ -124,7 +132,10 @@ export default function BotManager({ onClose, onSelectBot }) {
       default_provider: bot.default_provider || '',
       temperature: bot.temperature,
       max_tokens: bot.max_tokens,
-      is_public: bot.is_public
+      is_public: bot.is_public,
+      use_rag: bot.use_rag || false,
+      rag_top_k: bot.rag_top_k || 5,
+      rag_similarity_threshold: bot.rag_similarity_threshold || 0.7
     })
     setShowCreateForm(true)
   }
@@ -139,14 +150,24 @@ export default function BotManager({ onClose, onSelectBot }) {
       default_provider: '',
       temperature: 0.7,
       max_tokens: null,
-      is_public: false
+      is_public: false,
+      use_rag: false,
+      rag_top_k: 5,
+      rag_similarity_threshold: 0.7
     })
   }
 
   const emojiOptions = ['🤖', '🧠', '💡', '🎯', '🚀', '⚡', '🔥', '💻', '📚', '🎨', '🎭', '🎪', '🎬', '🎮', '🎯', '🏆']
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <>
+      {showDocManager && (
+        <DocumentManager
+          bot={showDocManager}
+          onClose={() => setShowDocManager(null)}
+        />
+      )}
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-background border border-border rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
@@ -299,6 +320,63 @@ export default function BotManager({ onClose, onSelectBot }) {
                 </div>
               </div>
 
+              {/* RAG Toggle */}
+              <div className="border border-border rounded-lg p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="use_rag"
+                    checked={formData.use_rag}
+                    onChange={(e) => setFormData({ ...formData, use_rag: e.target.checked })}
+                    className="rounded"
+                  />
+                  <label htmlFor="use_rag" className="text-sm font-medium flex items-center gap-2">
+                    <BookOpen size={16} />
+                    Enable RAG (Knowledge Base)
+                  </label>
+                </div>
+                
+                {formData.use_rag && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        Top K Results: {formData.rag_top_k}
+                      </label>
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={formData.rag_top_k}
+                        onChange={(e) => setFormData({ ...formData, rag_top_k: parseInt(e.target.value) })}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Number of document chunks to retrieve per query
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        Similarity Threshold: {formData.rag_similarity_threshold.toFixed(2)}
+                      </label>
+                      <input
+                        type="range"
+                        min="0.5"
+                        max="0.95"
+                        step="0.05"
+                        value={formData.rag_similarity_threshold}
+                        onChange={(e) => setFormData({ ...formData, rag_similarity_threshold: parseFloat(e.target.value) })}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Minimum similarity score for retrieved chunks (higher = more precise)
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {/* Public Toggle */}
               <div className="flex items-center gap-2">
                 <input
@@ -368,8 +446,23 @@ export default function BotManager({ onClose, onSelectBot }) {
                         <p className="text-xs text-muted-foreground line-clamp-2">
                           {bot.system_prompt}
                         </p>
+                        {bot.use_rag && (
+                          <div className="flex items-center gap-1 mt-2">
+                            <BookOpen size={12} className="text-primary" />
+                            <span className="text-xs text-primary">RAG Enabled</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2">
+                        {bot.use_rag && (
+                          <button
+                            onClick={() => setShowDocManager(bot)}
+                            className="p-2 hover:bg-accent rounded transition-colors"
+                            title="Manage documents"
+                          >
+                            <FileText size={18} />
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             onSelectBot(bot)
@@ -404,5 +497,6 @@ export default function BotManager({ onClose, onSelectBot }) {
         </div>
       </div>
     </div>
+    </>
   )
 }
