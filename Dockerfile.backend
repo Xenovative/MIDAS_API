@@ -24,6 +24,9 @@ COPY migrate_add_bot_id.py .
 COPY docker_backend_entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
+# Create static uploads directory
+RUN mkdir -p /app/backend/static/uploads
+
 EXPOSE 8000
 
 ENTRYPOINT ["./entrypoint.sh"]

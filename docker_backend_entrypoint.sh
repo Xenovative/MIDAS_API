@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure uploads directory exists with proper permissions
+mkdir -p /app/backend/static/uploads
+chmod 755 /app/backend/static/uploads
+
 RUN_INIT_DB=${RUN_INIT_DB:-true}
 CREATE_DEFAULT_ADMIN=${CREATE_DEFAULT_ADMIN:-true}
 

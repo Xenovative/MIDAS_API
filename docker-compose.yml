@@ -13,6 +13,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite+aiosqlite:///data/midas.db}
     volumes:
       - backend_data:/data
+      - backend_uploads:/app/backend/static/uploads
     network_mode: host
     depends_on: []
 
@@ -41,3 +42,4 @@ services:
 
 volumes:
   backend_data:
+  backend_uploads:
