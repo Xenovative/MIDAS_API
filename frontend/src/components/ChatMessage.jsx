@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink } from 'lucide-react'
+import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink, FileText } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -311,6 +311,18 @@ export default function ChatMessage({
             message={message.content.includes('🔄 Refining') ? "Refining image..." : "Generating image..."}
             previousImage={message.content.includes('🔄 Refining') ? previousImage : null}
           />
+        )}
+        
+        {/* Display documents (PDFs for user messages) */}
+        {message.meta_data?.documents && message.meta_data.documents.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {message.meta_data.documents.map((doc, idx) => (
+              <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-accent rounded-lg border border-border">
+                <FileText size={16} className="text-red-500" />
+                <span className="text-sm">{doc.name || `Document ${idx + 1}`}</span>
+              </div>
+            ))}
+          </div>
         )}
         
         {/* Display images (uploaded for user, generated for assistant) */}

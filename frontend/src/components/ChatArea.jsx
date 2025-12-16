@@ -239,19 +239,29 @@ export default function ChatArea() {
     setIsLoading(true)
     setStreamingMessage('')
 
-    // Add user message immediately to UI with images
+    // Add user message immediately to UI with images and documents
+    const userMetaData = {}
+    if (images.length > 0) {
+      userMetaData.images = images.map(img => ({
+        data: img.data,
+        type: img.type || 'image/png'
+      }))
+    }
+    if (documents.length > 0) {
+      userMetaData.documents = documents.map(doc => ({
+        name: doc.name,
+        mime_type: doc.mime_type,
+        data: doc.data
+      }))
+    }
+    
     const userMessage = {
       id: `temp-${Date.now()}`,
       conversation_id: currentConversation?.id,
       role: 'user',
       content: message,
       created_at: new Date().toISOString(),
-      meta_data: images.length > 0 ? { 
-        images: images.map(img => ({
-          data: img.data,
-          type: img.type || 'image/png'
-        }))
-      } : null
+      meta_data: Object.keys(userMetaData).length > 0 ? userMetaData : null
     }
     
     // Add to current conversation if it exists
@@ -423,6 +433,17 @@ export default function ChatArea() {
       }
     } catch (error) {
       console.error('Failed to send message:', error)
+      // On network error, reload conversation to get the saved messages from backend
+      if (currentConversation?.id) {
+        try {
+          const response = await chatApi.getConversation(currentConversation.id)
+          if (response.data) {
+            setCurrentConversation(response.data)
+          }
+        } catch (reloadError) {
+          console.error('Failed to reload conversation:', reloadError)
+        }
+      }
       alert('Failed to send message: ' + error.message)
     } finally {
       setIsLoading(false)
