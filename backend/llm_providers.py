@@ -2,7 +2,8 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 import httpx
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from backend.config import settings
 import json
 
@@ -499,18 +500,19 @@ class VolcanoProvider(LLMProvider):
 
 
 class GoogleProvider(LLMProvider):
-    """Google AI (Gemini) Provider - supports Gemini 2.x and Gemini 3"""
+    """Google AI (Gemini) Provider - using google-genai SDK for full Gemini 3 support"""
     
     # Gemini 3 models that need special handling
     GEMINI_3_MODELS = ['gemini-3-pro-preview', 'gemini-3-pro-image-preview']
     
     def __init__(self):
         self.api_key = settings.google_api_key
+        self.client = None
         if self.api_key:
-            genai.configure(api_key=self.api_key)
+            self.client = genai.Client(api_key=self.api_key)
     
     def is_available(self) -> bool:
-        return self.api_key is not None
+        return self.client is not None
     
     def _is_gemini_3(self, model: str) -> bool:
         """Check if model is Gemini 3 series"""
@@ -528,16 +530,18 @@ class GoogleProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Google API key not configured")
         
+        import base64
+        import asyncio
+        
         is_gemini_3 = self._is_gemini_3(model)
         
-        # Convert messages to Gemini format
-        gemini_messages = []
+        # Convert messages to Gemini format using types
+        contents = []
         system_instruction = None
         
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
-            thought_signature = msg.get("thought_signature")  # Gemini 3 thought signatures
             
             if role == "system":
                 system_instruction = content
@@ -547,88 +551,72 @@ class GoogleProvider(LLMProvider):
             gemini_role = "model" if role == "assistant" else "user"
             
             # Handle multimodal content
+            parts = []
             if isinstance(content, list):
-                parts = []
                 for item in content:
                     if item.get("type") == "text":
-                        part = {"text": item["text"]}
-                        # Add thought signature if present (Gemini 3)
-                        if thought_signature:
-                            part["thought_signature"] = thought_signature
-                        parts.append(part)
+                        parts.append(types.Part.from_text(item["text"]))
                     elif item.get("type") == "image_url":
-                        # Extract base64 image data
                         image_url = item["image_url"]["url"]
                         if image_url.startswith("data:"):
-                            # Parse data URI: data:image/jpeg;base64,<data>
-                            import base64
                             header, b64_data = image_url.split(",", 1)
                             mime_type = header.split(":")[1].split(";")[0]
-                            parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                            image_bytes = base64.b64decode(b64_data)
+                            parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
                     elif item.get("type") == "document":
-                        # Handle PDF/document content (Google AI specific)
-                        # Format: {"type": "document", "document": {"mime_type": "application/pdf", "data": "base64..."}}
-                        import base64
                         doc_data = item.get("document", {})
                         mime_type = doc_data.get("mime_type", "application/pdf")
                         b64_data = doc_data.get("data", "")
-                        part = {"inline_data": {"mime_type": mime_type, "data": b64_data}}
-                        # Gemini 3: Add media_resolution for document processing
-                        if is_gemini_3:
-                            part["media_resolution"] = {"level": "media_resolution_high"}
-                        parts.append(part)
-                gemini_messages.append({"role": gemini_role, "parts": parts})
+                        doc_bytes = base64.b64decode(b64_data)
+                        parts.append(types.Part.from_bytes(data=doc_bytes, mime_type=mime_type))
             else:
-                part_data = {"text": content} if isinstance(content, str) else content
-                if thought_signature and isinstance(part_data, dict):
-                    part_data["thought_signature"] = thought_signature
-                gemini_messages.append({"role": gemini_role, "parts": [part_data] if isinstance(part_data, dict) else [content]})
+                parts.append(types.Part.from_text(content))
+            
+            contents.append(types.Content(role=gemini_role, parts=parts))
         
         # Build generation config
-        generation_config = {}
+        config_kwargs = {}
         
-        # Gemini 3 recommends temperature=1.0, other models use provided value
+        # Gemini 3 recommends temperature=1.0
         if is_gemini_3:
-            generation_config["temperature"] = 1.0  # Gemini 3 optimized for 1.0
+            config_kwargs["temperature"] = 1.0
         else:
-            generation_config["temperature"] = temperature
+            config_kwargs["temperature"] = temperature
         
         if max_tokens:
-            generation_config["max_output_tokens"] = max_tokens
+            config_kwargs["max_output_tokens"] = max_tokens
         
         # Gemini 3 thinking level configuration
         if is_gemini_3 and thinking_level:
-            generation_config["thinking_config"] = {"thinking_level": thinking_level}
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
         
-        model_kwargs = {"generation_config": generation_config}
         if system_instruction:
-            model_kwargs["system_instruction"] = system_instruction
+            config_kwargs["system_instruction"] = system_instruction
         
-        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        config = types.GenerateContentConfig(**config_kwargs)
         
-        # Use async generation
-        import asyncio
+        # Generate using the new SDK
         response = await asyncio.to_thread(
-            gemini_model.generate_content,
-            gemini_messages
+            self.client.models.generate_content,
+            model=model,
+            contents=contents,
+            config=config
         )
         
-        # Extract text from response parts (handles multi-part responses)
+        # Extract text from response parts
         text_content = ""
         thought_signature = None
         
-        if hasattr(response, 'candidates') and response.candidates:
+        if response.candidates:
             candidate = response.candidates[0]
-            if hasattr(candidate, 'content') and candidate.content.parts:
+            if candidate.content and candidate.content.parts:
                 for part in candidate.content.parts:
-                    # Extract text from each part
                     if hasattr(part, 'text') and part.text:
                         text_content += part.text
-                    # Extract thought signature if present
                     if hasattr(part, 'thought_signature') and part.thought_signature:
                         thought_signature = part.thought_signature
         
-        # Fallback to response.text for simple responses
+        # Fallback to response.text
         if not text_content:
             try:
                 text_content = response.text
@@ -638,7 +626,7 @@ class GoogleProvider(LLMProvider):
         result = {
             "content": text_content,
             "model": model,
-            "tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
+            "tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') and response.usage_metadata else None
         }
         
         if thought_signature:
@@ -657,16 +645,18 @@ class GoogleProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Google API key not configured")
         
+        import base64
+        import asyncio
+        
         is_gemini_3 = self._is_gemini_3(model)
         
-        # Convert messages to Gemini format
-        gemini_messages = []
+        # Convert messages to Gemini format using types
+        contents = []
         system_instruction = None
         
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
-            thought_signature = msg.get("thought_signature")
             
             if role == "system":
                 system_instruction = content
@@ -674,80 +664,60 @@ class GoogleProvider(LLMProvider):
             
             gemini_role = "model" if role == "assistant" else "user"
             
+            parts = []
             if isinstance(content, list):
-                parts = []
                 for item in content:
                     if item.get("type") == "text":
-                        part = {"text": item["text"]}
-                        if thought_signature:
-                            part["thought_signature"] = thought_signature
-                        parts.append(part)
+                        parts.append(types.Part.from_text(item["text"]))
                     elif item.get("type") == "image_url":
                         image_url = item["image_url"]["url"]
                         if image_url.startswith("data:"):
-                            import base64
                             header, b64_data = image_url.split(",", 1)
                             mime_type = header.split(":")[1].split(";")[0]
-                            parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                            image_bytes = base64.b64decode(b64_data)
+                            parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
                     elif item.get("type") == "document":
-                        # Handle PDF/document content (Google AI specific)
-                        import base64
                         doc_data = item.get("document", {})
                         mime_type = doc_data.get("mime_type", "application/pdf")
                         b64_data = doc_data.get("data", "")
-                        part = {"inline_data": {"mime_type": mime_type, "data": b64_data}}
-                        if is_gemini_3:
-                            part["media_resolution"] = {"level": "media_resolution_high"}
-                        parts.append(part)
-                gemini_messages.append({"role": gemini_role, "parts": parts})
+                        doc_bytes = base64.b64decode(b64_data)
+                        parts.append(types.Part.from_bytes(data=doc_bytes, mime_type=mime_type))
             else:
-                part_data = {"text": content} if isinstance(content, str) else content
-                if thought_signature and isinstance(part_data, dict):
-                    part_data["thought_signature"] = thought_signature
-                gemini_messages.append({"role": gemini_role, "parts": [part_data] if isinstance(part_data, dict) else [content]})
+                parts.append(types.Part.from_text(content))
+            
+            contents.append(types.Content(role=gemini_role, parts=parts))
         
         # Build generation config
-        generation_config = {}
+        config_kwargs = {}
         
-        # Gemini 3 recommends temperature=1.0
         if is_gemini_3:
-            generation_config["temperature"] = 1.0
+            config_kwargs["temperature"] = 1.0
         else:
-            generation_config["temperature"] = temperature
+            config_kwargs["temperature"] = temperature
         
         if max_tokens:
-            generation_config["max_output_tokens"] = max_tokens
+            config_kwargs["max_output_tokens"] = max_tokens
         
-        # Gemini 3 thinking level
         if is_gemini_3 and thinking_level:
-            generation_config["thinking_config"] = {"thinking_level": thinking_level}
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
         
-        model_kwargs = {"generation_config": generation_config}
         if system_instruction:
-            model_kwargs["system_instruction"] = system_instruction
+            config_kwargs["system_instruction"] = system_instruction
         
-        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        config = types.GenerateContentConfig(**config_kwargs)
         
-        import asyncio
-        response = await asyncio.to_thread(
-            gemini_model.generate_content,
-            gemini_messages,
-            stream=True
+        # Generate with streaming using the new SDK
+        response_stream = self.client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=config
         )
         
-        for chunk in response:
-            # Handle multi-part chunks (e.g., with thought signatures)
-            if hasattr(chunk, 'candidates') and chunk.candidates:
+        for chunk in response_stream:
+            if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
                 for part in chunk.candidates[0].content.parts:
                     if hasattr(part, 'text') and part.text:
                         yield part.text
-            elif hasattr(chunk, 'text'):
-                try:
-                    if chunk.text:
-                        yield chunk.text
-                except Exception:
-                    # Skip chunks that don't have simple text
-                    pass
 
 
 class DeepSeekProvider(LLMProvider):
@@ -917,20 +887,24 @@ class LLMManager:
                 ]
             })
         
-        # Google AI (Gemini) - Fetch from API
+        # Google AI (Gemini) - Fetch from API using google-genai SDK
         google_provider = self.providers["google"]
         if google_provider.is_available():
             try:
                 import asyncio
-                models_list = await asyncio.to_thread(lambda: list(genai.list_models()))
+                # Use the client's models.list() method
+                models_response = await asyncio.to_thread(
+                    lambda: list(google_provider.client.models.list())
+                )
                 google_models = []
-                for model in models_list:
+                for model in models_response:
                     # Only include generateContent-capable models
-                    if "generateContent" in model.supported_generation_methods:
+                    supported_methods = getattr(model, 'supported_generation_methods', [])
+                    if "generateContent" in supported_methods:
                         model_id = model.name.replace("models/", "")
                         google_models.append({
                             "id": model_id,
-                            "name": model.display_name,
+                            "name": getattr(model, 'display_name', model_id),
                             "provider": "google",
                             "context_window": getattr(model, "input_token_limit", 32000),
                             "supports_functions": True,
@@ -945,6 +919,8 @@ class LLMManager:
                     })
             except Exception as e:
                 print(f"Google AI models fetch error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # OpenRouter
         openrouter_provider = self.providers["openrouter"]

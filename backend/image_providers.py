@@ -8,7 +8,8 @@ import base64
 import io
 from PIL import Image
 from backend.config import settings
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 
 class ImageProvider(ABC):
@@ -397,15 +398,16 @@ class StabilityAIProvider(ImageProvider):
 
 
 class GoogleImageProvider(ImageProvider):
-    """Google AI (Gemini) image generation - Nano Banana & Nano Banana Pro (Gemini 3)"""
+    """Google AI (Gemini) image generation - using google-genai SDK for full Gemini 3 support"""
     
     # Gemini 3 image models
     GEMINI_3_IMAGE_MODELS = ['gemini-3-pro-image-preview']
     
     def __init__(self):
         self.api_key = settings.google_api_key
+        self.client = None
         if self.api_key:
-            genai.configure(api_key=self.api_key)
+            self.client = genai.Client(api_key=self.api_key)
     
     def _is_gemini_3(self, model: str) -> bool:
         """Check if model is Gemini 3 series"""
@@ -418,24 +420,19 @@ class GoogleImageProvider(ImageProvider):
         quality: str = "standard",
         style: Optional[str] = None,
         n: int = 1,
-        model: str = "gemini-2.5-flash-image",
+        model: str = "gemini-2.5-flash-preview-05-20",
         image: Optional[str] = None,
         reference_images: Optional[List[str]] = None,
         use_google_search: bool = False,  # Gemini 3: grounded generation
         thought_signature: Optional[str] = None,  # Gemini 3: for multi-turn editing
         **kwargs
     ) -> List[dict]:
-        if not self.api_key:
+        if not self.client:
             raise ValueError("Google API key not configured")
         
         import asyncio
         
         is_gemini_3 = self._is_gemini_3(model)
-        
-        # Build generation config
-        generation_config = {
-            "response_modalities": ["TEXT", "IMAGE"]
-        }
         
         # Map size to aspect ratio
         size_to_aspect = {
@@ -449,103 +446,76 @@ class GoogleImageProvider(ImageProvider):
         }
         aspect_ratio = size_to_aspect.get(size, "1:1")
         
-        # Image config for aspect ratio and resolution
-        image_config = {"aspect_ratio": aspect_ratio}
+        # Build contents list
+        contents = []
+        
+        # Add reference images if provided (for editing)
+        if image:
+            # Single input image for editing - decode base64 to bytes
+            image_bytes = base64.b64decode(image)
+            contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/png"))
+        elif reference_images:
+            # Multiple reference images (Gemini 3 Pro supports up to 14)
+            for ref_img in reference_images[:14]:
+                ref_bytes = base64.b64decode(ref_img)
+                contents.append(types.Part.from_bytes(data=ref_bytes, mime_type="image/png"))
+        
+        # Add the text prompt
+        contents.append(prompt)
+        
+        # Build generation config with image settings
+        config_kwargs = {
+            "response_modalities": ["TEXT", "IMAGE"],
+        }
+        
+        # Add image config for aspect ratio and resolution
+        image_config_kwargs = {"aspect_ratio": aspect_ratio}
         
         # Gemini 3 Pro Image supports higher resolutions (up to 4K)
         if is_gemini_3:
-            # Map quality to resolution for Gemini 3 Pro model
             quality_to_size = {
                 "standard": "1K",
                 "hd": "2K",
                 "ultra": "4K"
             }
-            image_config["image_size"] = quality_to_size.get(quality, "1K")
+            image_config_kwargs["image_size"] = quality_to_size.get(quality, "1K")
         
-        generation_config["image_config"] = image_config
+        config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
         
-        # Build contents
-        contents = []
-        
-        # Add reference images if provided (for editing)
-        if image:
-            # Single input image for editing
-            part = {
-                "inline_data": {
-                    "mime_type": "image/png",
-                    "data": image
-                }
-            }
-            # Add thought signature for Gemini 3 multi-turn editing
-            if is_gemini_3 and thought_signature:
-                part["thought_signature"] = thought_signature
-            contents.append(part)
-        elif reference_images:
-            # Multiple reference images (Gemini 3 Pro supports up to 14)
-            for ref_img in reference_images[:14]:
-                contents.append({
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": ref_img
-                    }
-                })
-        
-        # Add the text prompt
-        contents.append(prompt)
-        
-        # Build model kwargs
-        model_kwargs = {"generation_config": generation_config}
-        
-        # Gemini 3 Pro Image supports Google Search grounding for real-world data
+        # Add Google Search grounding for Gemini 3
         if is_gemini_3 and use_google_search:
-            model_kwargs["tools"] = [{"google_search": {}}]
+            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
         
-        # Create model and generate
-        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        config = types.GenerateContentConfig(**config_kwargs)
         
+        # Generate using the new SDK
         response = await asyncio.to_thread(
-            gemini_model.generate_content,
-            contents
+            self.client.models.generate_content,
+            model=model,
+            contents=contents,
+            config=config
         )
         
         # Debug: Log response structure
-        print(f"📦 Gemini image response: {response}")
-        if hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            print(f"📦 Candidate finish_reason: {getattr(candidate, 'finish_reason', 'N/A')}")
-            if hasattr(candidate, 'safety_ratings'):
-                print(f"📦 Safety ratings: {candidate.safety_ratings}")
-        
-        # Check for blocked content
-        if hasattr(response, 'prompt_feedback'):
-            print(f"📦 Prompt feedback: {response.prompt_feedback}")
-            if hasattr(response.prompt_feedback, 'block_reason') and response.prompt_feedback.block_reason:
-                raise ValueError(f"Content blocked: {response.prompt_feedback.block_reason}")
+        print(f"📦 Gemini image response received")
         
         # Extract images from response
         results = []
         response_thought_signature = None
         
-        # Handle case where response has no parts
-        if not hasattr(response, 'parts') or not response.parts:
-            # Try to get text response explaining why no image was generated
-            try:
-                if hasattr(response, 'text') and response.text:
-                    raise ValueError(f"No image generated. Model response: {response.text[:500]}")
-            except Exception:
-                pass
-            
-            # Check candidates for more info
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            raise ValueError(f"No image generated. Model response: {part.text[:500]}")
-            
+        # Check if response has parts
+        if not response.candidates or not response.candidates[0].content.parts:
+            # Try to get text explaining why no image
+            text_response = ""
+            if response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_response += part.text
+            if text_response:
+                raise ValueError(f"No image generated. Model response: {text_response[:500]}")
             raise ValueError("No image generated - response contained no parts")
         
-        for part in response.parts:
+        for part in response.candidates[0].content.parts:
             if hasattr(part, 'inline_data') and part.inline_data:
                 # Convert to data URL
                 mime_type = part.inline_data.mime_type
