@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, Image as ImageIcon, X, Mic, Volume2, Square, Sparkles, ChevronDown, FileText, Upload } from 'lucide-react'
 import { generationApi, documentsApi } from '../lib/api'
 
-export default function ChatInput({ onSend, disabled, supportsVision, onImageIntent, selectedBot, conversationId }) {
+export default function ChatInput({ onSend, disabled, supportsVision, onImageIntent, selectedBot, conversationId, selectedProvider }) {
   const [message, setMessage] = useState('')
   const [images, setImages] = useState([])
-  const [uploadMode, setUploadMode] = useState('image') // 'image' or 'document'
+  const [documents, setDocuments] = useState([]) // Inline documents for Google AI
+  const [uploadMode, setUploadMode] = useState('image') // 'image', 'document', or 'inline_document'
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStatus, setUploadStatus] = useState('')
@@ -106,9 +107,10 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
   const handleSubmit = (e) => {
     e.preventDefault()
     if (message.trim() && !disabled) {
-      onSend(message, images, selectedImageModel)
+      onSend(message, images, selectedImageModel, documents)
       setMessage('')
       setImages([])
+      setDocuments([])
     }
   }
 
@@ -187,6 +189,51 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
     } finally {
       setUploadingDoc(false)
     }
+  }
+
+  const handleInlineDocumentUpload = async (e) => {
+    // For Google AI: Upload PDF inline with the message (not to RAG)
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const fileExtension = file.name.split('.').pop().toLowerCase()
+    
+    // Only PDF supported for inline document processing
+    if (fileExtension !== 'pdf') {
+      alert('Only PDF files are supported for inline document processing with Google AI')
+      e.target.value = ''
+      return
+    }
+
+    // Check file size (50MB limit for Google AI)
+    if (file.size > 50 * 1024 * 1024) {
+      alert('PDF file too large. Maximum size is 50MB for Google AI.')
+      e.target.value = ''
+      return
+    }
+
+    try {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const base64Data = event.target.result.split(',')[1]
+        setDocuments(prev => [...prev, {
+          name: file.name,
+          mime_type: 'application/pdf',
+          data: base64Data
+        }])
+      }
+      reader.readAsDataURL(file)
+      e.target.value = ''
+      setShowUploadMenu(false)
+    } catch (error) {
+      console.error('Failed to read document:', error)
+      alert('Failed to read document: ' + error.message)
+      e.target.value = ''
+    }
+  }
+
+  const removeDocument = (index) => {
+    setDocuments(prev => prev.filter((_, i) => i !== index))
   }
 
   const removeImage = (index) => {
@@ -303,6 +350,25 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
           </div>
         )}
         
+        {/* Document previews (for Google AI inline processing) */}
+        {documents.length > 0 && (
+          <div className="flex gap-2 mb-2 flex-wrap">
+            {documents.map((doc, index) => (
+              <div key={index} className="relative group flex items-center gap-2 px-3 py-2 bg-accent rounded-lg border border-border">
+                <FileText size={16} className="text-red-500" />
+                <span className="text-sm truncate max-w-[150px]">{doc.name}</span>
+                <button
+                  type="button"
+                  onClick={() => removeDocument(index)}
+                  className="ml-1 text-muted-foreground hover:text-red-500 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        
         
         <div className="flex gap-2">
           <textarea
@@ -320,9 +386,9 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
               <input
                 ref={fileInputRef}
                 type="file"
-                accept={uploadMode === 'image' ? 'image/*' : '.txt,.pdf,.doc,.docx,.json,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/json'}
+                accept={uploadMode === 'image' ? 'image/*' : uploadMode === 'inline_document' ? '.pdf,application/pdf' : '.txt,.pdf,.doc,.docx,.json,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/json'}
                 multiple={uploadMode === 'image'}
-                onChange={uploadMode === 'image' ? handleImageSelect : handleDocumentUpload}
+                onChange={uploadMode === 'image' ? handleImageSelect : uploadMode === 'inline_document' ? handleInlineDocumentUpload : handleDocumentUpload}
                 className="hidden"
               />
               
@@ -368,10 +434,27 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
                       >
                         <FileText size={16} />
                         <div className="flex flex-col">
-                          <span>Upload Document</span>
+                          <span>Upload to Knowledge Base</span>
                           <span className="text-xs text-muted-foreground">.txt, .pdf, .docx, .json</span>
                         </div>
                       </button>
+                      {selectedProvider === 'google' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadMode('inline_document')
+                            setShowUploadMenu(false)
+                            fileInputRef.current?.click()
+                          }}
+                          className="w-full px-4 py-2 text-left hover:bg-accent transition-colors flex items-center gap-2 whitespace-nowrap border-t border-border"
+                        >
+                          <FileText size={16} className="text-blue-500" />
+                          <div className="flex flex-col">
+                            <span>Attach PDF (Inline)</span>
+                            <span className="text-xs text-muted-foreground">Process with Gemini directly</span>
+                          </div>
+                        </button>
+                      )}
                     </div>
                   )}
                 </>

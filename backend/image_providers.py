@@ -8,6 +8,7 @@ import base64
 import io
 from PIL import Image
 from backend.config import settings
+import google.generativeai as genai
 
 
 class ImageProvider(ABC):
@@ -395,6 +396,185 @@ class StabilityAIProvider(ImageProvider):
         ]
 
 
+class GoogleImageProvider(ImageProvider):
+    """Google AI (Gemini) image generation - Nano Banana & Nano Banana Pro (Gemini 3)"""
+    
+    # Gemini 3 image models
+    GEMINI_3_IMAGE_MODELS = ['gemini-3-pro-image-preview']
+    
+    def __init__(self):
+        self.api_key = settings.google_api_key
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+    
+    def _is_gemini_3(self, model: str) -> bool:
+        """Check if model is Gemini 3 series"""
+        return any(g3 in model for g3 in self.GEMINI_3_IMAGE_MODELS) or model.startswith('gemini-3')
+    
+    async def generate(
+        self,
+        prompt: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        style: Optional[str] = None,
+        n: int = 1,
+        model: str = "gemini-2.5-flash-image",
+        image: Optional[str] = None,
+        reference_images: Optional[List[str]] = None,
+        use_google_search: bool = False,  # Gemini 3: grounded generation
+        thought_signature: Optional[str] = None,  # Gemini 3: for multi-turn editing
+        **kwargs
+    ) -> List[dict]:
+        if not self.api_key:
+            raise ValueError("Google API key not configured")
+        
+        import asyncio
+        
+        is_gemini_3 = self._is_gemini_3(model)
+        
+        # Build generation config
+        generation_config = {
+            "response_modalities": ["TEXT", "IMAGE"]
+        }
+        
+        # Map size to aspect ratio
+        size_to_aspect = {
+            "1024x1024": "1:1",
+            "1792x1024": "16:9",
+            "1024x1792": "9:16",
+            "1280x720": "16:9",
+            "720x1280": "9:16",
+            "1536x1024": "3:2",
+            "1024x1536": "2:3",
+        }
+        aspect_ratio = size_to_aspect.get(size, "1:1")
+        
+        # Image config for aspect ratio and resolution
+        image_config = {"aspect_ratio": aspect_ratio}
+        
+        # Gemini 3 Pro Image supports higher resolutions (up to 4K)
+        if is_gemini_3:
+            # Map quality to resolution for Gemini 3 Pro model
+            quality_to_size = {
+                "standard": "1K",
+                "hd": "2K",
+                "ultra": "4K"
+            }
+            image_config["image_size"] = quality_to_size.get(quality, "1K")
+        
+        generation_config["image_config"] = image_config
+        
+        # Build contents
+        contents = []
+        
+        # Add reference images if provided (for editing)
+        if image:
+            # Single input image for editing
+            part = {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": image
+                }
+            }
+            # Add thought signature for Gemini 3 multi-turn editing
+            if is_gemini_3 and thought_signature:
+                part["thought_signature"] = thought_signature
+            contents.append(part)
+        elif reference_images:
+            # Multiple reference images (Gemini 3 Pro supports up to 14)
+            for ref_img in reference_images[:14]:
+                contents.append({
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": ref_img
+                    }
+                })
+        
+        # Add the text prompt
+        contents.append(prompt)
+        
+        # Build model kwargs
+        model_kwargs = {"generation_config": generation_config}
+        
+        # Gemini 3 Pro Image supports Google Search grounding for real-world data
+        if is_gemini_3 and use_google_search:
+            model_kwargs["tools"] = [{"google_search": {}}]
+        
+        # Create model and generate
+        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        
+        response = await asyncio.to_thread(
+            gemini_model.generate_content,
+            contents
+        )
+        
+        # Extract images from response
+        results = []
+        response_thought_signature = None
+        
+        for part in response.parts:
+            if hasattr(part, 'inline_data') and part.inline_data:
+                # Convert to data URL
+                mime_type = part.inline_data.mime_type
+                b64_data = part.inline_data.data
+                if isinstance(b64_data, bytes):
+                    b64_data = base64.b64encode(b64_data).decode('utf-8')
+                
+                result = {
+                    "url": f"data:{mime_type};base64,{b64_data}",
+                    "revised_prompt": None
+                }
+                
+                # Extract thought signature for Gemini 3 (needed for multi-turn editing)
+                if is_gemini_3 and hasattr(part, 'thought_signature') and part.thought_signature:
+                    result["thought_signature"] = part.thought_signature
+                    response_thought_signature = part.thought_signature
+                
+                results.append(result)
+            elif hasattr(part, 'text') and part.text:
+                # Some responses include text description
+                print(f"Gemini response text: {part.text}")
+                # Gemini 3: text parts can also have thought signatures
+                if is_gemini_3 and hasattr(part, 'thought_signature') and part.thought_signature:
+                    response_thought_signature = part.thought_signature
+        
+        if not results:
+            raise ValueError("No images generated in response")
+        
+        # Attach thought signature to first result for easy access
+        if response_thought_signature and results:
+            results[0]["thought_signature"] = response_thought_signature
+        
+        return results
+    
+    def get_available_models(self) -> List[dict]:
+        if not self.api_key:
+            return []
+        
+        return [
+            {
+                "id": "gemini-2.5-flash-image",
+                "name": "Gemini 2.5 Flash Image (Nano Banana)",
+                "provider": "google",
+                "sizes": ["1024x1024", "1792x1024", "1024x1792"],
+                "qualities": ["standard"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False
+            },
+            {
+                "id": "gemini-3-pro-image-preview",
+                "name": "Gemini 3 Pro Image (Nano Banana Pro)",
+                "provider": "google",
+                "sizes": ["1024x1024", "1792x1024", "1024x1792"],
+                "qualities": ["standard", "hd", "ultra"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False
+            }
+        ]
+
+
 class ReplicateProvider(ImageProvider):
     """Replicate image generation (various models)"""
     
@@ -506,6 +686,7 @@ class ImageProviderManager:
     def __init__(self):
         self.providers = {
             "openai": OpenAIImageProvider(),
+            "google": GoogleImageProvider(),
             "stability": StabilityAIProvider(),
             "replicate": ReplicateProvider()
         }

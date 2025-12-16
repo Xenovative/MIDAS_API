@@ -39,10 +39,17 @@ class ConversationResponse(BaseModel):
         from_attributes = True
 
 
+class DocumentData(BaseModel):
+    """Document data for inline processing (Google AI)"""
+    mime_type: str = "application/pdf"
+    data: str  # Base64 encoded document
+
+
 class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
     images: Optional[List[str]] = None  # Base64 encoded images
+    documents: Optional[List[DocumentData]] = None  # Inline documents for Google AI
     model: str = "gpt-3.5-turbo"
     provider: str = "openai"
     temperature: float = Field(default=0.7, ge=0, le=2)

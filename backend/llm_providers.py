@@ -499,7 +499,11 @@ class VolcanoProvider(LLMProvider):
 
 
 class GoogleProvider(LLMProvider):
-    """Google AI (Gemini) Provider"""
+    """Google AI (Gemini) Provider - supports Gemini 2.x and Gemini 3"""
+    
+    # Gemini 3 models that need special handling
+    GEMINI_3_MODELS = ['gemini-3-pro-preview', 'gemini-3-pro-image-preview']
+    
     def __init__(self):
         self.api_key = settings.google_api_key
         if self.api_key:
@@ -508,16 +512,23 @@ class GoogleProvider(LLMProvider):
     def is_available(self) -> bool:
         return self.api_key is not None
     
+    def _is_gemini_3(self, model: str) -> bool:
+        """Check if model is Gemini 3 series"""
+        return any(g3 in model for g3 in self.GEMINI_3_MODELS) or model.startswith('gemini-3')
+    
     async def chat(
         self,
         messages: List[Dict[str, Any]],
         model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
-        stream: bool = False
+        stream: bool = False,
+        thinking_level: Optional[str] = None  # Gemini 3: 'low', 'high'
     ) -> Dict[str, Any]:
         if not self.is_available():
             raise ValueError("Google API key not configured")
+        
+        is_gemini_3 = self._is_gemini_3(model)
         
         # Convert messages to Gemini format
         gemini_messages = []
@@ -526,6 +537,7 @@ class GoogleProvider(LLMProvider):
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
+            thought_signature = msg.get("thought_signature")  # Gemini 3 thought signatures
             
             if role == "system":
                 system_instruction = content
@@ -539,7 +551,11 @@ class GoogleProvider(LLMProvider):
                 parts = []
                 for item in content:
                     if item.get("type") == "text":
-                        parts.append(item["text"])
+                        part = {"text": item["text"]}
+                        # Add thought signature if present (Gemini 3)
+                        if thought_signature:
+                            part["thought_signature"] = thought_signature
+                        parts.append(part)
                     elif item.get("type") == "image_url":
                         # Extract base64 image data
                         image_url = item["image_url"]["url"]
@@ -548,18 +564,41 @@ class GoogleProvider(LLMProvider):
                             import base64
                             header, b64_data = image_url.split(",", 1)
                             mime_type = header.split(":")[1].split(";")[0]
-                            image_bytes = base64.b64decode(b64_data)
                             parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                    elif item.get("type") == "document":
+                        # Handle PDF/document content (Google AI specific)
+                        # Format: {"type": "document", "document": {"mime_type": "application/pdf", "data": "base64..."}}
+                        import base64
+                        doc_data = item.get("document", {})
+                        mime_type = doc_data.get("mime_type", "application/pdf")
+                        b64_data = doc_data.get("data", "")
+                        part = {"inline_data": {"mime_type": mime_type, "data": b64_data}}
+                        # Gemini 3: Add media_resolution for document processing
+                        if is_gemini_3:
+                            part["media_resolution"] = {"level": "media_resolution_high"}
+                        parts.append(part)
                 gemini_messages.append({"role": gemini_role, "parts": parts})
             else:
-                gemini_messages.append({"role": gemini_role, "parts": [content]})
+                part_data = {"text": content} if isinstance(content, str) else content
+                if thought_signature and isinstance(part_data, dict):
+                    part_data["thought_signature"] = thought_signature
+                gemini_messages.append({"role": gemini_role, "parts": [part_data] if isinstance(part_data, dict) else [content]})
         
-        # Create model with optional system instruction
-        generation_config = {
-            "temperature": temperature,
-        }
+        # Build generation config
+        generation_config = {}
+        
+        # Gemini 3 recommends temperature=1.0, other models use provided value
+        if is_gemini_3:
+            generation_config["temperature"] = 1.0  # Gemini 3 optimized for 1.0
+        else:
+            generation_config["temperature"] = temperature
+        
         if max_tokens:
             generation_config["max_output_tokens"] = max_tokens
+        
+        # Gemini 3 thinking level configuration
+        if is_gemini_3 and thinking_level:
+            generation_config["thinking_config"] = {"thinking_level": thinking_level}
         
         model_kwargs = {"generation_config": generation_config}
         if system_instruction:
@@ -574,21 +613,35 @@ class GoogleProvider(LLMProvider):
             gemini_messages
         )
         
-        return {
+        result = {
             "content": response.text,
             "model": model,
             "tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
         }
+        
+        # Extract thought signature from Gemini 3 response for multi-turn
+        if is_gemini_3 and hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'content') and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'thought_signature') and part.thought_signature:
+                        result["thought_signature"] = part.thought_signature
+                        break
+        
+        return result
     
     async def chat_stream(
         self,
         messages: List[Dict[str, Any]],
         model: str,
         temperature: float = 0.7,
-        max_tokens: Optional[int] = None
+        max_tokens: Optional[int] = None,
+        thinking_level: Optional[str] = None  # Gemini 3: 'low', 'high'
     ) -> AsyncGenerator[str, None]:
         if not self.is_available():
             raise ValueError("Google API key not configured")
+        
+        is_gemini_3 = self._is_gemini_3(model)
         
         # Convert messages to Gemini format
         gemini_messages = []
@@ -597,6 +650,7 @@ class GoogleProvider(LLMProvider):
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
+            thought_signature = msg.get("thought_signature")
             
             if role == "system":
                 system_instruction = content
@@ -608,7 +662,10 @@ class GoogleProvider(LLMProvider):
                 parts = []
                 for item in content:
                     if item.get("type") == "text":
-                        parts.append(item["text"])
+                        part = {"text": item["text"]}
+                        if thought_signature:
+                            part["thought_signature"] = thought_signature
+                        parts.append(part)
                     elif item.get("type") == "image_url":
                         image_url = item["image_url"]["url"]
                         if image_url.startswith("data:"):
@@ -616,15 +673,38 @@ class GoogleProvider(LLMProvider):
                             header, b64_data = image_url.split(",", 1)
                             mime_type = header.split(":")[1].split(";")[0]
                             parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                    elif item.get("type") == "document":
+                        # Handle PDF/document content (Google AI specific)
+                        import base64
+                        doc_data = item.get("document", {})
+                        mime_type = doc_data.get("mime_type", "application/pdf")
+                        b64_data = doc_data.get("data", "")
+                        part = {"inline_data": {"mime_type": mime_type, "data": b64_data}}
+                        if is_gemini_3:
+                            part["media_resolution"] = {"level": "media_resolution_high"}
+                        parts.append(part)
                 gemini_messages.append({"role": gemini_role, "parts": parts})
             else:
-                gemini_messages.append({"role": gemini_role, "parts": [content]})
+                part_data = {"text": content} if isinstance(content, str) else content
+                if thought_signature and isinstance(part_data, dict):
+                    part_data["thought_signature"] = thought_signature
+                gemini_messages.append({"role": gemini_role, "parts": [part_data] if isinstance(part_data, dict) else [content]})
         
-        generation_config = {
-            "temperature": temperature,
-        }
+        # Build generation config
+        generation_config = {}
+        
+        # Gemini 3 recommends temperature=1.0
+        if is_gemini_3:
+            generation_config["temperature"] = 1.0
+        else:
+            generation_config["temperature"] = temperature
+        
         if max_tokens:
             generation_config["max_output_tokens"] = max_tokens
+        
+        # Gemini 3 thinking level
+        if is_gemini_3 and thinking_level:
+            generation_config["thinking_config"] = {"thinking_level": thinking_level}
         
         model_kwargs = {"generation_config": generation_config}
         if system_instruction:

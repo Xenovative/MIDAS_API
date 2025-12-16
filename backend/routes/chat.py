@@ -530,12 +530,25 @@ async def chat(
     if image_paths:
         print(f"💾 Saved {len(image_paths)} images to: {image_paths}")
     
-    # Save user message with ONLY file paths (never base64)
+    # Handle inline documents (for Google AI)
+    inline_documents = None
+    if request.documents:
+        inline_documents = [{"mime_type": doc.mime_type, "data": doc.data} for doc in request.documents]
+        print(f"📄 Received {len(inline_documents)} inline documents for Google AI")
+    
+    # Build meta_data for user message
+    user_meta_data = {}
+    if image_paths:
+        user_meta_data["images"] = image_paths
+    if inline_documents:
+        user_meta_data["documents"] = inline_documents
+    
+    # Save user message with file paths and inline documents
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
         content=request.message,
-        meta_data={"images": image_paths} if image_paths else None
+        meta_data=user_meta_data if user_meta_data else None
     )
     db.add(user_message)
     await db.commit()
@@ -548,14 +561,47 @@ async def chat(
     )
     history = messages_result.scalars().all()
     
-    # Build conversation history for LLM (text only, no images)
+    # Build conversation history for LLM
     formatted_messages = []
     if request.system_prompt:
         formatted_messages.append({"role": "system", "content": request.system_prompt})
     
+    # Check if using Google AI provider (needs special multimodal format)
+    is_google_provider = request.provider == "google"
+    
     for msg in history:
-        # Only text content - images are handled separately via file paths
-        formatted_messages.append({"role": msg.role, "content": msg.content})
+        # For Google AI, include images/documents inline in content
+        if is_google_provider and msg.meta_data:
+            content_parts = []
+            
+            # Add images if present
+            msg_images = msg.meta_data.get("images", [])
+            for img_path in msg_images:
+                clean_path = img_path.replace("/static/", "")
+                file_path = Path("backend/static") / clean_path
+                if file_path.exists():
+                    with open(file_path, "rb") as f:
+                        img_b64 = base64.b64encode(f.read()).decode()
+                    ext = file_path.suffix.lower()
+                    mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+                    mime_type = mime_map.get(ext, "image/jpeg")
+                    content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}})
+            
+            # Add documents if present
+            msg_docs = msg.meta_data.get("documents", [])
+            for doc in msg_docs:
+                content_parts.append({"type": "document", "document": doc})
+            
+            # Add text content
+            if msg.content:
+                content_parts.append({"type": "text", "text": msg.content})
+            
+            if content_parts:
+                formatted_messages.append({"role": msg.role, "content": content_parts})
+            else:
+                formatted_messages.append({"role": msg.role, "content": msg.content})
+        else:
+            formatted_messages.append({"role": msg.role, "content": msg.content})
     
     # Inject RAG context from bot or conversation documents
     rag_context = None
@@ -803,12 +849,25 @@ async def chat_stream(
     if image_paths:
         print(f"💾 Saved {len(image_paths)} images (streaming)")
     
-    # Save user message with ONLY file paths (never base64)
+    # Handle inline documents (for Google AI)
+    inline_documents = None
+    if request.documents:
+        inline_documents = [{"mime_type": doc.mime_type, "data": doc.data} for doc in request.documents]
+        print(f"📄 Received {len(inline_documents)} inline documents for Google AI")
+    
+    # Build meta_data for user message
+    user_meta_data = {}
+    if image_paths:
+        user_meta_data["images"] = image_paths
+    if inline_documents:
+        user_meta_data["documents"] = inline_documents
+    
+    # Save user message with file paths and inline documents
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
         content=request.message,
-        meta_data={"images": image_paths} if image_paths else None
+        meta_data=user_meta_data if user_meta_data else None
     )
     db.add(user_message)
     await db.commit()
@@ -821,14 +880,50 @@ async def chat_stream(
     )
     history = messages_result.scalars().all()
     
-    # Build conversation history for LLM (text only, no images)
+    # Build conversation history for LLM
     formatted_messages = []
     if request.system_prompt:
         formatted_messages.append({"role": "system", "content": request.system_prompt})
     
+    # Check if using Google AI provider (needs special multimodal format)
+    is_google_provider = request.provider == "google"
+    
     for msg in history:
-        # Only text content - images handled separately
-        formatted_messages.append({"role": msg.role, "content": msg.content})
+        # For Google AI, include images/documents inline in content
+        if is_google_provider and msg.meta_data:
+            content_parts = []
+            
+            # Add images if present
+            msg_images = msg.meta_data.get("images", [])
+            for img_path in msg_images:
+                # Load image from disk and convert to base64
+                clean_path = img_path.replace("/static/", "")
+                file_path = Path("backend/static") / clean_path
+                if file_path.exists():
+                    with open(file_path, "rb") as f:
+                        img_b64 = base64.b64encode(f.read()).decode()
+                    # Determine mime type from extension
+                    ext = file_path.suffix.lower()
+                    mime_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+                    mime_type = mime_map.get(ext, "image/jpeg")
+                    content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}})
+            
+            # Add documents if present
+            msg_docs = msg.meta_data.get("documents", [])
+            for doc in msg_docs:
+                content_parts.append({"type": "document", "document": doc})
+            
+            # Add text content
+            if msg.content:
+                content_parts.append({"type": "text", "text": msg.content})
+            
+            if content_parts:
+                formatted_messages.append({"role": msg.role, "content": content_parts})
+            else:
+                formatted_messages.append({"role": msg.role, "content": msg.content})
+        else:
+            # Standard text-only format for other providers
+            formatted_messages.append({"role": msg.role, "content": msg.content})
     
     async def generate():
         try:

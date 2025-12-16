@@ -230,7 +230,7 @@ export default function ChatArea() {
     }
   }
 
-  const handleSendMessage = async (message, images = [], imageModel = null) => {
+  const handleSendMessage = async (message, images = [], imageModel = null, documents = []) => {
     if (!selectedModel || !selectedProvider) {
       alert('Please select a model first')
       return
@@ -304,6 +304,15 @@ export default function ChatArea() {
       // Add images if provided
       if (images.length > 0) {
         requestData.images = images.map(img => img.data)
+      }
+      
+      // Add inline documents if provided (for Google AI)
+      if (documents.length > 0) {
+        requestData.documents = documents.map(doc => ({
+          mime_type: doc.mime_type,
+          data: doc.data
+        }))
+        console.log('📄 Inline documents added:', documents.length)
       }
       
       console.log('Request data:', requestData)
@@ -574,6 +583,7 @@ export default function ChatArea() {
         onImageIntent={handleImageIntent}
         selectedBot={selectedBot}
         conversationId={currentConversation?.id}
+        selectedProvider={selectedProvider}
         supportsVision={
           providers
             .flatMap(p => p.models)
