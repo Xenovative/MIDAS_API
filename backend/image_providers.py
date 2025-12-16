@@ -502,20 +502,24 @@ class GoogleImageProvider(ImageProvider):
                 mime_type = part.inline_data.mime_type
                 raw_data = part.inline_data.data
                 
-                # Debug: Log data type
-                print(f"📦 Image data type: {type(raw_data)}, mime: {mime_type}")
+                # Debug: Log data type and size
+                print(f"📦 Image data type: {type(raw_data)}, mime: {mime_type}, size: {len(raw_data) if raw_data else 0}")
                 
                 # Handle different data formats from google-genai SDK
                 if isinstance(raw_data, bytes):
                     # Raw bytes - encode to base64
+                    print(f"📦 Raw bytes first 20: {raw_data[:20]}")
                     b64_data = base64.b64encode(raw_data).decode('utf-8')
+                    print(f"📦 Base64 encoded length: {len(b64_data)}")
                 elif isinstance(raw_data, str):
                     # Already a string - check if it's base64 or needs encoding
                     # The SDK may return base64 string directly
                     b64_data = raw_data
+                    print(f"📦 String data length: {len(b64_data)}")
                 else:
                     # Unknown type - try to convert
                     b64_data = str(raw_data)
+                    print(f"📦 Converted to string, length: {len(b64_data)}")
                 
                 result = {
                     "url": f"data:{mime_type};base64,{b64_data}",
