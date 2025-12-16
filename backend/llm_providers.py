@@ -498,6 +498,152 @@ class VolcanoProvider(LLMProvider):
                             continue
 
 
+class GoogleProvider(LLMProvider):
+    """Google AI (Gemini) Provider"""
+    def __init__(self):
+        self.api_key = settings.google_api_key
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+    
+    def is_available(self) -> bool:
+        return self.api_key is not None
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        stream: bool = False
+    ) -> Dict[str, Any]:
+        if not self.is_available():
+            raise ValueError("Google API key not configured")
+        
+        # Convert messages to Gemini format
+        gemini_messages = []
+        system_instruction = None
+        
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "system":
+                system_instruction = content
+                continue
+            
+            # Map roles: user -> user, assistant -> model
+            gemini_role = "model" if role == "assistant" else "user"
+            
+            # Handle multimodal content
+            if isinstance(content, list):
+                parts = []
+                for item in content:
+                    if item.get("type") == "text":
+                        parts.append(item["text"])
+                    elif item.get("type") == "image_url":
+                        # Extract base64 image data
+                        image_url = item["image_url"]["url"]
+                        if image_url.startswith("data:"):
+                            # Parse data URI: data:image/jpeg;base64,<data>
+                            import base64
+                            header, b64_data = image_url.split(",", 1)
+                            mime_type = header.split(":")[1].split(";")[0]
+                            image_bytes = base64.b64decode(b64_data)
+                            parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                gemini_messages.append({"role": gemini_role, "parts": parts})
+            else:
+                gemini_messages.append({"role": gemini_role, "parts": [content]})
+        
+        # Create model with optional system instruction
+        generation_config = {
+            "temperature": temperature,
+        }
+        if max_tokens:
+            generation_config["max_output_tokens"] = max_tokens
+        
+        model_kwargs = {"generation_config": generation_config}
+        if system_instruction:
+            model_kwargs["system_instruction"] = system_instruction
+        
+        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        
+        # Use async generation
+        import asyncio
+        response = await asyncio.to_thread(
+            gemini_model.generate_content,
+            gemini_messages
+        )
+        
+        return {
+            "content": response.text,
+            "model": model,
+            "tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
+        }
+    
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None
+    ) -> AsyncGenerator[str, None]:
+        if not self.is_available():
+            raise ValueError("Google API key not configured")
+        
+        # Convert messages to Gemini format
+        gemini_messages = []
+        system_instruction = None
+        
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "system":
+                system_instruction = content
+                continue
+            
+            gemini_role = "model" if role == "assistant" else "user"
+            
+            if isinstance(content, list):
+                parts = []
+                for item in content:
+                    if item.get("type") == "text":
+                        parts.append(item["text"])
+                    elif item.get("type") == "image_url":
+                        image_url = item["image_url"]["url"]
+                        if image_url.startswith("data:"):
+                            import base64
+                            header, b64_data = image_url.split(",", 1)
+                            mime_type = header.split(":")[1].split(";")[0]
+                            parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                gemini_messages.append({"role": gemini_role, "parts": parts})
+            else:
+                gemini_messages.append({"role": gemini_role, "parts": [content]})
+        
+        generation_config = {
+            "temperature": temperature,
+        }
+        if max_tokens:
+            generation_config["max_output_tokens"] = max_tokens
+        
+        model_kwargs = {"generation_config": generation_config}
+        if system_instruction:
+            model_kwargs["system_instruction"] = system_instruction
+        
+        gemini_model = genai.GenerativeModel(model, **model_kwargs)
+        
+        import asyncio
+        response = await asyncio.to_thread(
+            gemini_model.generate_content,
+            gemini_messages,
+            stream=True
+        )
+        
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+
+
 class DeepSeekProvider(LLMProvider):
     """DeepSeek API Provider"""
     def __init__(self):
@@ -566,6 +712,7 @@ class LLMManager:
         self.providers = {
             "openai": OpenAIProvider(),
             "anthropic": AnthropicProvider(),
+            "google": GoogleProvider(),
             "openrouter": OpenRouterProvider(),
             "volcano": VolcanoProvider(),
             "deepseek": DeepSeekProvider(),
@@ -663,6 +810,35 @@ class LLMManager:
                     {"id": "claude-3-haiku-20240307", "name": "Claude 3 Haiku", "provider": "anthropic", "context_window": 200000, "supports_functions": True, "supports_vision": True}
                 ]
             })
+        
+        # Google AI (Gemini) - Fetch from API
+        google_provider = self.providers["google"]
+        if google_provider.is_available():
+            try:
+                import asyncio
+                models_list = await asyncio.to_thread(lambda: list(genai.list_models()))
+                google_models = []
+                for model in models_list:
+                    # Only include generateContent-capable models
+                    if "generateContent" in model.supported_generation_methods:
+                        model_id = model.name.replace("models/", "")
+                        google_models.append({
+                            "id": model_id,
+                            "name": model.display_name,
+                            "provider": "google",
+                            "context_window": getattr(model, "input_token_limit", 32000),
+                            "supports_functions": True,
+                            "supports_vision": "vision" in model_id or "gemini" in model_id
+                        })
+                
+                if google_models:
+                    providers_status.append({
+                        "provider": "google",
+                        "available": True,
+                        "models": google_models
+                    })
+            except Exception as e:
+                print(f"Google AI models fetch error: {e}")
         
         # OpenRouter
         openrouter_provider = self.providers["openrouter"]
