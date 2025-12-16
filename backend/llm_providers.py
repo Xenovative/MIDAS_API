@@ -586,9 +586,9 @@ class GoogleProvider(LLMProvider):
         if max_tokens:
             config_kwargs["max_output_tokens"] = max_tokens
         
-        # Gemini 3 thinking level configuration
-        if is_gemini_3 and thinking_level:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
+        # Skip thinking config for now - may not be supported in all models
+        # if is_gemini_3 and thinking_level:
+        #     config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
         
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
@@ -698,8 +698,9 @@ class GoogleProvider(LLMProvider):
         if max_tokens:
             config_kwargs["max_output_tokens"] = max_tokens
         
-        if is_gemini_3 and thinking_level:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
+        # Skip thinking config for now - may not be supported in all models
+        # if is_gemini_3 and thinking_level:
+        #     config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_level)
         
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
@@ -707,17 +708,23 @@ class GoogleProvider(LLMProvider):
         config = types.GenerateContentConfig(**config_kwargs)
         
         # Generate with streaming using the new SDK
-        response_stream = self.client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=config
-        )
-        
-        for chunk in response_stream:
-            if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
-                for part in chunk.candidates[0].content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        yield part.text
+        try:
+            response_stream = self.client.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=config
+            )
+            
+            for chunk in response_stream:
+                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                    for part in chunk.candidates[0].content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            yield part.text
+        except Exception as e:
+            print(f"❌ Google streaming error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield f"\n\nError: {str(e)}"
 
 
 class DeepSeekProvider(LLMProvider):
