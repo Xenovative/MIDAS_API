@@ -464,29 +464,10 @@ class GoogleImageProvider(ImageProvider):
         contents.append(prompt)
         
         # Build generation config with image settings
-        config_kwargs = {
-            "response_modalities": ["TEXT", "IMAGE"],
-        }
-        
-        # Add image config for aspect ratio and resolution
-        image_config_kwargs = {"aspect_ratio": aspect_ratio}
-        
-        # Gemini 3 Pro Image supports higher resolutions (up to 4K)
-        if is_gemini_3:
-            quality_to_size = {
-                "standard": "1K",
-                "hd": "2K",
-                "ultra": "4K"
-            }
-            image_config_kwargs["image_size"] = quality_to_size.get(quality, "1K")
-        
-        config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
-        
-        # Add Google Search grounding for Gemini 3
-        if is_gemini_3 and use_google_search:
-            config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-        
-        config = types.GenerateContentConfig(**config_kwargs)
+        # Note: response_modalities tells the model to output both text and images
+        config = types.GenerateContentConfig(
+            response_modalities=["TEXT", "IMAGE"],
+        )
         
         # Generate using the new SDK
         response = await asyncio.to_thread(
