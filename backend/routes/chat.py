@@ -629,7 +629,7 @@ async def chat(
             print("⚠️ Realtime context unavailable")
 
     # Check if this is an image generation model
-    is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2"]
+    is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
     
     # Get LLM response
     try:
@@ -963,7 +963,7 @@ async def chat_stream(
             agent_executions = list(rag_execs) + list(realtime_execs)
             
             # Check if this is an image generation model
-            is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2"]
+            is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
             
             if is_image_model:
                 # Direct image generation when image model is selected

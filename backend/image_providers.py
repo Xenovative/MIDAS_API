@@ -508,9 +508,42 @@ class GoogleImageProvider(ImageProvider):
             contents
         )
         
+        # Debug: Log response structure
+        print(f"📦 Gemini image response: {response}")
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            print(f"📦 Candidate finish_reason: {getattr(candidate, 'finish_reason', 'N/A')}")
+            if hasattr(candidate, 'safety_ratings'):
+                print(f"📦 Safety ratings: {candidate.safety_ratings}")
+        
+        # Check for blocked content
+        if hasattr(response, 'prompt_feedback'):
+            print(f"📦 Prompt feedback: {response.prompt_feedback}")
+            if hasattr(response.prompt_feedback, 'block_reason') and response.prompt_feedback.block_reason:
+                raise ValueError(f"Content blocked: {response.prompt_feedback.block_reason}")
+        
         # Extract images from response
         results = []
         response_thought_signature = None
+        
+        # Handle case where response has no parts
+        if not hasattr(response, 'parts') or not response.parts:
+            # Try to get text response explaining why no image was generated
+            try:
+                if hasattr(response, 'text') and response.text:
+                    raise ValueError(f"No image generated. Model response: {response.text[:500]}")
+            except Exception:
+                pass
+            
+            # Check candidates for more info
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            raise ValueError(f"No image generated. Model response: {part.text[:500]}")
+            
+            raise ValueError("No image generated - response contained no parts")
         
         for part in response.parts:
             if hasattr(part, 'inline_data') and part.inline_data:
