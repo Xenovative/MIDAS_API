@@ -555,7 +555,7 @@ class GoogleProvider(LLMProvider):
             if isinstance(content, list):
                 for item in content:
                     if item.get("type") == "text":
-                        parts.append(types.Part.from_text(item["text"]))
+                        parts.append(types.Part.from_text(text=item["text"]))
                     elif item.get("type") == "image_url":
                         image_url = item["image_url"]["url"]
                         if image_url.startswith("data:"):
@@ -570,7 +570,7 @@ class GoogleProvider(LLMProvider):
                         doc_bytes = base64.b64decode(b64_data)
                         parts.append(types.Part.from_bytes(data=doc_bytes, mime_type=mime_type))
             else:
-                parts.append(types.Part.from_text(content))
+                parts.append(types.Part.from_text(text=content))
             
             contents.append(types.Content(role=gemini_role, parts=parts))
         
@@ -668,7 +668,7 @@ class GoogleProvider(LLMProvider):
             if isinstance(content, list):
                 for item in content:
                     if item.get("type") == "text":
-                        parts.append(types.Part.from_text(item["text"]))
+                        parts.append(types.Part.from_text(text=item["text"]))
                     elif item.get("type") == "image_url":
                         image_url = item["image_url"]["url"]
                         if image_url.startswith("data:"):
@@ -683,7 +683,7 @@ class GoogleProvider(LLMProvider):
                         doc_bytes = base64.b64decode(b64_data)
                         parts.append(types.Part.from_bytes(data=doc_bytes, mime_type=mime_type))
             else:
-                parts.append(types.Part.from_text(content))
+                parts.append(types.Part.from_text(text=content))
             
             contents.append(types.Content(role=gemini_role, parts=parts))
         
