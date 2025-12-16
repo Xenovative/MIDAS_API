@@ -887,40 +887,23 @@ class LLMManager:
                 ]
             })
         
-        # Google AI (Gemini) - Fetch from API using google-genai SDK
+        # Google AI (Gemini) - Use static list (google-genai SDK model listing is different)
         google_provider = self.providers["google"]
         if google_provider.is_available():
-            try:
-                import asyncio
-                # Use the client's models.list() method
-                models_response = await asyncio.to_thread(
-                    lambda: list(google_provider.client.models.list())
-                )
-                google_models = []
-                for model in models_response:
-                    # Only include generateContent-capable models
-                    supported_methods = getattr(model, 'supported_generation_methods', [])
-                    if "generateContent" in supported_methods:
-                        model_id = model.name.replace("models/", "")
-                        google_models.append({
-                            "id": model_id,
-                            "name": getattr(model, 'display_name', model_id),
-                            "provider": "google",
-                            "context_window": getattr(model, "input_token_limit", 32000),
-                            "supports_functions": True,
-                            "supports_vision": "vision" in model_id or "gemini" in model_id
-                        })
-                
-                if google_models:
-                    providers_status.append({
-                        "provider": "google",
-                        "available": True,
-                        "models": google_models
-                    })
-            except Exception as e:
-                print(f"Google AI models fetch error: {e}")
-                import traceback
-                traceback.print_exc()
+            providers_status.append({
+                "provider": "google",
+                "available": True,
+                "models": [
+                    {"id": "gemini-2.5-pro-preview-06-05", "name": "Gemini 2.5 Pro Preview", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-2.5-flash-preview-05-20", "name": "Gemini 2.5 Flash Preview", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash Lite", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "provider": "google", "context_window": 2097152, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-3-pro-preview", "name": "Gemini 3 Pro Preview", "provider": "google", "context_window": 1048576, "supports_functions": True, "supports_vision": True},
+                    {"id": "gemini-3-pro-image-preview", "name": "Gemini 3 Pro Image", "provider": "google", "context_window": 1048576, "supports_functions": False, "supports_vision": True},
+                ]
+            })
         
         # OpenRouter
         openrouter_provider = self.providers["openrouter"]
