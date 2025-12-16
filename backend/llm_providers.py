@@ -708,23 +708,49 @@ class GoogleProvider(LLMProvider):
         config = types.GenerateContentConfig(**config_kwargs)
         
         # Generate with streaming using the new SDK
-        try:
-            response_stream = self.client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=config
-            )
-            
-            for chunk in response_stream:
-                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
-                    for part in chunk.candidates[0].content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            yield part.text
-        except Exception as e:
-            print(f"❌ Google streaming error: {e}")
-            import traceback
-            traceback.print_exc()
-            yield f"\n\nError: {str(e)}"
+        # Run synchronous streaming in a thread and use a queue to pass chunks
+        import queue
+        import threading
+        
+        chunk_queue = queue.Queue()
+        error_holder = [None]
+        
+        def stream_in_thread():
+            try:
+                response_stream = self.client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+                for chunk in response_stream:
+                    if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                        for part in chunk.candidates[0].content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                chunk_queue.put(part.text)
+                chunk_queue.put(None)  # Signal end
+            except Exception as e:
+                print(f"❌ Google streaming error: {e}")
+                import traceback
+                traceback.print_exc()
+                error_holder[0] = e
+                chunk_queue.put(None)
+        
+        thread = threading.Thread(target=stream_in_thread)
+        thread.start()
+        
+        while True:
+            try:
+                chunk = await asyncio.to_thread(chunk_queue.get, timeout=60)
+                if chunk is None:
+                    break
+                yield chunk
+            except queue.Empty:
+                break
+        
+        thread.join(timeout=1)
+        
+        if error_holder[0]:
+            yield f"\n\nError: {str(error_holder[0])}"
 
 
 class DeepSeekProvider(LLMProvider):
