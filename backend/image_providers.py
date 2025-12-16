@@ -507,13 +507,24 @@ class GoogleImageProvider(ImageProvider):
                 
                 # Handle different data formats from google-genai SDK
                 if isinstance(raw_data, bytes):
-                    # Raw bytes - encode to base64
-                    print(f"📦 Raw bytes first 20: {raw_data[:20]}")
-                    b64_data = base64.b64encode(raw_data).decode('utf-8')
-                    print(f"📦 Base64 encoded length: {len(b64_data)}")
+                    # Check if it's already base64 encoded (starts with base64 chars, not binary)
+                    # Raw JPEG starts with \xff\xd8\xff, base64 starts with /9j/ or similar ASCII
+                    first_bytes = raw_data[:4]
+                    if first_bytes.startswith(b'\xff\xd8'):
+                        # Raw JPEG bytes - encode to base64
+                        print(f"📦 Detected raw JPEG bytes, encoding to base64")
+                        b64_data = base64.b64encode(raw_data).decode('utf-8')
+                    elif first_bytes.startswith(b'\x89PNG'):
+                        # Raw PNG bytes - encode to base64
+                        print(f"📦 Detected raw PNG bytes, encoding to base64")
+                        b64_data = base64.b64encode(raw_data).decode('utf-8')
+                    else:
+                        # Already base64 encoded as bytes - just decode to string
+                        print(f"📦 Data appears to be base64 encoded bytes, decoding to string")
+                        b64_data = raw_data.decode('utf-8')
+                    print(f"📦 Final base64 length: {len(b64_data)}")
                 elif isinstance(raw_data, str):
-                    # Already a string - check if it's base64 or needs encoding
-                    # The SDK may return base64 string directly
+                    # Already a string - use as-is
                     b64_data = raw_data
                     print(f"📦 String data length: {len(b64_data)}")
                 else:
