@@ -613,20 +613,36 @@ class GoogleProvider(LLMProvider):
             gemini_messages
         )
         
+        # Extract text from response parts (handles multi-part responses)
+        text_content = ""
+        thought_signature = None
+        
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'content') and candidate.content.parts:
+                for part in candidate.content.parts:
+                    # Extract text from each part
+                    if hasattr(part, 'text') and part.text:
+                        text_content += part.text
+                    # Extract thought signature if present
+                    if hasattr(part, 'thought_signature') and part.thought_signature:
+                        thought_signature = part.thought_signature
+        
+        # Fallback to response.text for simple responses
+        if not text_content:
+            try:
+                text_content = response.text
+            except Exception:
+                text_content = ""
+        
         result = {
-            "content": response.text,
+            "content": text_content,
             "model": model,
             "tokens": response.usage_metadata.total_token_count if hasattr(response, 'usage_metadata') else None
         }
         
-        # Extract thought signature from Gemini 3 response for multi-turn
-        if is_gemini_3 and hasattr(response, 'candidates') and response.candidates:
-            candidate = response.candidates[0]
-            if hasattr(candidate, 'content') and candidate.content.parts:
-                for part in candidate.content.parts:
-                    if hasattr(part, 'thought_signature') and part.thought_signature:
-                        result["thought_signature"] = part.thought_signature
-                        break
+        if thought_signature:
+            result["thought_signature"] = thought_signature
         
         return result
     
@@ -720,8 +736,18 @@ class GoogleProvider(LLMProvider):
         )
         
         for chunk in response:
-            if chunk.text:
-                yield chunk.text
+            # Handle multi-part chunks (e.g., with thought signatures)
+            if hasattr(chunk, 'candidates') and chunk.candidates:
+                for part in chunk.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        yield part.text
+            elif hasattr(chunk, 'text'):
+                try:
+                    if chunk.text:
+                        yield chunk.text
+                except Exception:
+                    # Skip chunks that don't have simple text
+                    pass
 
 
 class DeepSeekProvider(LLMProvider):
