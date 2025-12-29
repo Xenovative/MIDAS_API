@@ -718,13 +718,43 @@ class VolcanoImageProvider(ImageProvider):
         if not self.api_key:
             raise ValueError("Volcano API key not configured")
             
+        # Get actual endpoint ID if needed
+        actual_model = self._get_endpoint_id(model)
+        
         # Determine if it's video or image generation
-        is_video = "seedance" in model.lower() or "video" in model.lower()
+        is_video = "seedance" in model.lower() or "video" in model.lower() or "seedance" in actual_model.lower()
         
         if is_video:
-            return await self._generate_video(prompt, model, size)
+            return await self._generate_video(prompt, actual_model, size)
         else:
-            return await self._generate_image(prompt, model, size, n)
+            return await self._generate_image(prompt, actual_model, size, n)
+
+    def _get_endpoint_id(self, model: str) -> str:
+        """Get the actual endpoint ID for a model name"""
+        # If model is already an endpoint ID (starts with ep-), use it
+        if model.startswith("ep-"):
+            return model
+        
+        # 1. Check specialized settings from config
+        is_video = "seedance" in model.lower() or "video" in model.lower()
+        if is_video and settings.volcano_video_endpoint:
+            return settings.volcano_video_endpoint
+        elif not is_video and settings.volcano_image_endpoint:
+            return settings.volcano_image_endpoint
+            
+        # 2. Check environment variables for mapping
+        import os
+        model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
+        if model_map_str:
+            try:
+                model_map = dict(item.split(":") for item in model_map_str.split(",") if ":" in item)
+                if model in model_map:
+                    return model_map[model]
+            except Exception as e:
+                print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
+        
+        # Fallback to the model name itself
+        return model
 
     async def _generate_image(self, prompt: str, model: str, size: str, n: int) -> List[dict]:
         """OpenAI-compatible image generation for Seedream"""
@@ -885,11 +915,30 @@ class ImageProviderManager:
         moderation: str = "low"
     ) -> List[dict]:
         """Generate images using the specified model"""
-        # Find which provider has this model
+        # 1. First check for explicit model ID matches
         for provider_name, provider in self.providers.items():
             models = provider.get_available_models()
             if any(m["id"] == model for m in models):
                 return await provider.generate(
+                    prompt=prompt,
+                    size=size,
+                    quality=quality,
+                    style=style,
+                    n=n,
+                    model=model,
+                    image=image,
+                    reference_images=reference_images,
+                    image_fidelity=image_fidelity,
+                    moderation=moderation
+                )
+        
+        # 2. Heuristic routing for Volcano Engine models (dynamic endpoints)
+        volcano_provider = self.providers.get("volcano")
+        if volcano_provider and volcano_provider.is_available():
+            volcano_keywords = ["seedance", "seedream", "video", "ep-"]
+            if any(kw in model.lower() for kw in volcano_keywords):
+                print(f"🔀 Heuristic routing model '{model}' to Volcano Engine")
+                return await volcano_provider.generate(
                     prompt=prompt,
                     size=size,
                     quality=quality,

@@ -442,6 +442,31 @@ class VolcanoProvider(LLMProvider):
                 "supports_vision": True,
                 "supports_image_generation": False
             })
+
+        # 1.1 Add specialized Image/Video endpoints if configured
+        if settings.volcano_image_endpoint and settings.volcano_image_endpoint.startswith("ep-"):
+            if not any(m["id"] == settings.volcano_image_endpoint for m in models):
+                models.append({
+                    "id": settings.volcano_image_endpoint,
+                    "name": "豆包 (Image Endpoint)",
+                    "provider": "volcano",
+                    "context_window": 128000,
+                    "supports_functions": False,
+                    "supports_vision": True,
+                    "supports_image_generation": True
+                })
+
+        if settings.volcano_video_endpoint and settings.volcano_video_endpoint.startswith("ep-"):
+            if not any(m["id"] == settings.volcano_video_endpoint for m in models):
+                models.append({
+                    "id": settings.volcano_video_endpoint,
+                    "name": "豆包 (Video Endpoint)",
+                    "provider": "volcano",
+                    "context_window": 128000,
+                    "supports_functions": False,
+                    "supports_vision": True,
+                    "supports_image_generation": True
+                })
             
         # 2. Add standard models as default options if not already discovered
         standard_models = [

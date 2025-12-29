@@ -14,6 +14,8 @@ class APIKeyUpdate(BaseModel):
     openrouter_api_key: Optional[str] = None
     volcano_api_key: Optional[str] = None
     volcano_endpoint_id: Optional[str] = None
+    volcano_image_endpoint: Optional[str] = None
+    volcano_video_endpoint: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     ollama_base_url: Optional[str] = None
 
@@ -43,7 +45,9 @@ async def get_api_keys_status():
         "volcano": {
             "configured": bool(settings.volcano_api_key and settings.volcano_endpoint_id),
             "masked_key": f"{settings.volcano_api_key[:7]}...{settings.volcano_api_key[-4:]}" if settings.volcano_api_key else None,
-            "endpoint_id": settings.volcano_endpoint_id
+            "endpoint_id": settings.volcano_endpoint_id,
+            "image_endpoint": settings.volcano_image_endpoint,
+            "video_endpoint": settings.volcano_video_endpoint
         },
         "deepseek": {
             "configured": bool(settings.deepseek_api_key),
@@ -113,6 +117,18 @@ async def update_api_keys(keys: APIKeyUpdate):
                 env_vars['VOLCANO_ENDPOINT_ID'] = keys.volcano_endpoint_id
             elif 'VOLCANO_ENDPOINT_ID' in env_vars:
                 del env_vars['VOLCANO_ENDPOINT_ID']
+        
+        if keys.volcano_image_endpoint is not None:
+            if keys.volcano_image_endpoint:
+                env_vars['VOLCANO_IMAGE_ENDPOINT'] = keys.volcano_image_endpoint
+            elif 'VOLCANO_IMAGE_ENDPOINT' in env_vars:
+                del env_vars['VOLCANO_IMAGE_ENDPOINT']
+                
+        if keys.volcano_video_endpoint is not None:
+            if keys.volcano_video_endpoint:
+                env_vars['VOLCANO_VIDEO_ENDPOINT'] = keys.volcano_video_endpoint
+            elif 'VOLCANO_VIDEO_ENDPOINT' in env_vars:
+                del env_vars['VOLCANO_VIDEO_ENDPOINT']
         
         if keys.deepseek_api_key is not None:
             if keys.deepseek_api_key:

@@ -43,6 +43,8 @@ export default function Settings({ isOpen, onClose }) {
     openrouter: '',
     volcano: '',
     volcanoEndpoint: '',
+    volcanoImageEndpoint: '',
+    volcanoVideoEndpoint: '',
     deepseek: '',
     ollama: 'http://localhost:11434'
   })
@@ -111,6 +113,8 @@ export default function Settings({ isOpen, onClose }) {
       if (apiKeys.openrouter) keysToUpdate.openrouter_api_key = apiKeys.openrouter
       if (apiKeys.volcano) keysToUpdate.volcano_api_key = apiKeys.volcano
       if (apiKeys.volcanoEndpoint) keysToUpdate.volcano_endpoint_id = apiKeys.volcanoEndpoint
+      if (apiKeys.volcanoImageEndpoint) keysToUpdate.volcano_image_endpoint = apiKeys.volcanoImageEndpoint
+      if (apiKeys.volcanoVideoEndpoint) keysToUpdate.volcano_video_endpoint = apiKeys.volcanoVideoEndpoint
       if (apiKeys.deepseek) keysToUpdate.deepseek_api_key = apiKeys.deepseek
       if (apiKeys.ollama) keysToUpdate.ollama_base_url = apiKeys.ollama
 
@@ -125,6 +129,8 @@ export default function Settings({ isOpen, onClose }) {
         openrouter: '',
         volcano: '',
         volcanoEndpoint: '',
+        volcanoImageEndpoint: '',
+        volcanoVideoEndpoint: '',
         deepseek: '',
         ollama: 'http://localhost:11434'
       })
@@ -629,7 +635,21 @@ export default function Settings({ isOpen, onClose }) {
                       type="text"
                       value={apiKeys.volcanoEndpoint}
                       onChange={(e) => setApiKeys({...apiKeys, volcanoEndpoint: e.target.value})}
-                      placeholder="Endpoint ID (e.g., ep-xxxxx)"
+                      placeholder="Chat Endpoint ID (e.g., ep-xxxxx)"
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={apiKeys.volcanoImageEndpoint}
+                      onChange={(e) => setApiKeys({...apiKeys, volcanoImageEndpoint: e.target.value})}
+                      placeholder="Image Endpoint ID (e.g., ep-xxxxx)"
+                      className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={apiKeys.volcanoVideoEndpoint}
+                      onChange={(e) => setApiKeys({...apiKeys, volcanoVideoEndpoint: e.target.value})}
+                      placeholder="Video Endpoint ID (e.g., ep-xxxxx)"
                       className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm"
                     />
                   </div>
