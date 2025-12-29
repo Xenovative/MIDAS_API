@@ -128,8 +128,11 @@ class VolcanoVideoProvider(VideoProvider):
                     print(f"ℹ️ Video task status: {status} (poll {i}, task {task_id})")
                 
                 if status == "succeeded":
-                    video_url = status_data.get("output", {}).get("video", {}).get("url") \
+                    video_url = (
+                        status_data.get("output", {}).get("video", {}).get("url")
                         or status_data.get("output", {}).get("url")
+                        or status_data.get("content", {}).get("video_url")
+                    )
                     if video_url:
                         return [{"url": video_url, "type": "video", "revised_prompt": None}]
                     raise ValueError(f"Video URL not found in successful task: {status_data}")
