@@ -13,6 +13,7 @@ class APIKeyUpdate(BaseModel):
     google_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     volcano_api_key: Optional[str] = None
+    volcano_endpoint_id: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     ollama_base_url: Optional[str] = None
 
@@ -40,8 +41,9 @@ async def get_api_keys_status():
             "masked_key": f"{settings.openrouter_api_key[:7]}...{settings.openrouter_api_key[-4:]}" if settings.openrouter_api_key else None
         },
         "volcano": {
-            "configured": bool(settings.volcano_api_key),
-            "masked_key": f"{settings.volcano_api_key[:7]}...{settings.volcano_api_key[-4:]}" if settings.volcano_api_key else None
+            "configured": bool(settings.volcano_api_key and settings.volcano_endpoint_id),
+            "masked_key": f"{settings.volcano_api_key[:7]}...{settings.volcano_api_key[-4:]}" if settings.volcano_api_key else None,
+            "endpoint_id": settings.volcano_endpoint_id
         },
         "deepseek": {
             "configured": bool(settings.deepseek_api_key),
@@ -105,6 +107,12 @@ async def update_api_keys(keys: APIKeyUpdate):
                 env_vars['VOLCANO_API_KEY'] = keys.volcano_api_key
             elif 'VOLCANO_API_KEY' in env_vars:
                 del env_vars['VOLCANO_API_KEY']
+        
+        if keys.volcano_endpoint_id is not None:
+            if keys.volcano_endpoint_id:
+                env_vars['VOLCANO_ENDPOINT_ID'] = keys.volcano_endpoint_id
+            elif 'VOLCANO_ENDPOINT_ID' in env_vars:
+                del env_vars['VOLCANO_ENDPOINT_ID']
         
         if keys.deepseek_api_key is not None:
             if keys.deepseek_api_key:

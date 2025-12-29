@@ -418,10 +418,11 @@ class VolcanoProvider(LLMProvider):
     """火山引擎 (Volcano Engine) Provider"""
     def __init__(self):
         self.api_key = settings.volcano_api_key
+        self.endpoint_id = settings.volcano_endpoint_id
         self.base_url = settings.volcano_base_url
     
     def is_available(self) -> bool:
-        return self.api_key is not None
+        return self.api_key is not None and self.endpoint_id is not None
     
     async def get_available_models(self) -> List[Dict[str, Any]]:
         """Fetch available inference endpoints from Volcano Engine"""
@@ -430,12 +431,48 @@ class VolcanoProvider(LLMProvider):
             
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # IMPORTANT: In Volcano Ark V3, you CANNOT use base model names (e.g. doubao-pro) 
-                # for inference. You MUST use Inference Endpoint IDs (prefixed with 'ep-').
-                # /endpoints returns the actual callable endpoints.
-                url = f"{self.base_url}/endpoints"
-                print(f"🔍 Fetching Volcano endpoints from: {url}")
+                # Ark V3 is OpenAI compatible, so it should support /models
+                # But Volcengine also has a specific /endpoints for management
+                # We'll try /models first as it's the standard OpenAI discovery endpoint
+                url = f"{self.base_url}/models"
+                print(f"🔍 Fetching Volcano models from: {url}")
                 
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    items = data.get("data", [])
+                    print(f"✅ Found {len(items)} Volcano models via /models")
+                    models = []
+                    for item in items:
+                        # In Ark V3, 'id' is the endpoint_id
+                        model_id = item.get("id")
+                        if not model_id:
+                            continue
+                            
+                        # Try to find a human-friendly name if available
+                        # Standard OpenAI /models response doesn't have many fields
+                        name = item.get("name") or model_id
+                        
+                        models.append({
+                            "id": model_id,
+                            "name": f"豆包 ({name})",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": "vision" in model_id.lower() or "vision" in name.lower()
+                        })
+                    return models
+                
+                # If /models fails, fall back to /endpoints (management API style)
+                url = f"{self.base_url}/endpoints"
+                print(f"🔍 Falling back to Volcano endpoints from: {url}")
                 response = await client.get(
                     url,
                     headers={
@@ -461,46 +498,10 @@ class VolcanoProvider(LLMProvider):
                                 "supports_functions": True,
                                 "supports_vision": "vision" in ep['model_name'].lower()
                             })
-                    if models:
-                        return models
-
-                # Fallback to /models but EXCLUSIVELY filter for 'ep-' prefixed IDs.
-                # Base model names returned here are NOT callable and will 404.
-                url = f"{self.base_url}/models"
-                print(f"🔍 Falling back to Volcano models from: {url}")
-                
-                response = await client.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    }
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get("data", [])
-                    models = []
-                    for item in items:
-                        model_id = item.get("id", "")
-                        # ONLY include IDs that are actual endpoints (start with ep-)
-                        if model_id.startswith("ep-"):
-                            name = item.get("name") or model_id
-                            models.append({
-                                "id": model_id,
-                                "name": f"豆包 ({name})",
-                                "provider": "volcano",
-                                "context_window": 128000,
-                                "supports_functions": True,
-                                "supports_vision": "vision" in model_id.lower() or "vision" in name.lower()
-                            })
-                    
-                    if models:
-                        print(f"✅ Found {len(models)} valid Volcano endpoints via /models")
-                        return models
-                
-                print(f"⚠️ No callable Volcano endpoints found. Please create an Inference Endpoint in the Ark console.")
-                return []
+                    return models
+                else:
+                    print(f"⚠️ Volcano discovery failed (models: {response.status_code})")
+                    return []
         except Exception as e:
             print(f"⚠️ Error fetching Volcano models: {e}")
             return []
@@ -522,11 +523,13 @@ class VolcanoProvider(LLMProvider):
             except Exception as e:
                 print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
         
-        # No more default endpoint fallback. If not found in map, use the model name.
-        if not model.startswith("ep-"):
-            print(f"⚠️ Warning: Volcano model '{model}' does not look like an Inference Endpoint ID (should start with 'ep-'). This will likely result in a 404 error from the Ark API.")
-        
-        return model 
+        # Fallback to default endpoint ID from settings
+        # Validate that the endpoint_id looks like a real endpoint ID (ep-...)
+        if self.endpoint_id and self.endpoint_id.startswith("ep-"):
+            return self.endpoint_id
+            
+        print(f"⚠️ No valid mapping found for Volcano model '{model}' and default endpoint_id is invalid: '{self.endpoint_id}'")
+        return model # Fallback to model name itself, which will likely fail but at least it's clear
 
     async def chat(
         self,
@@ -1105,9 +1108,12 @@ class LLMManager:
                 volcano_models = await volcano_provider.get_available_models()
                 
                 # If dynamic detection failed or returned nothing, use fallback
-                # ONLY use environment mapping if dynamic discovery failed
                 if not volcano_models:
-                    volcano_models = []
+                    volcano_models = [
+                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
+                        {"id": "doubao-lite", "name": "豆包 Lite", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
+                        {"id": "doubao-vision", "name": "豆包 Vision", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": True}
+                    ]
                     
                     # Add endpoint IDs if they are configured in environment
                     import os
@@ -1117,10 +1123,9 @@ class LLMManager:
                             for item in model_map_str.split(","):
                                 if ":" in item:
                                     model_id, endpoint_id = item.split(":", 1)
-                                    # Ensure we ONLY include valid ep- prefixed IDs
-                                    if endpoint_id.startswith("ep-") and not any(m["id"] == endpoint_id for m in volcano_models):
+                                    if not any(m["id"] == model_id for m in volcano_models):
                                         volcano_models.append({
-                                            "id": endpoint_id,
+                                            "id": model_id,
                                             "name": f"豆包 ({model_id})",
                                             "provider": "volcano",
                                             "context_window": 128000,
@@ -1129,15 +1134,33 @@ class LLMManager:
                                         })
                         except:
                             pass
+                    
+                    # Also add the default endpoint if not mapped and it's a valid ID
+                    if volcano_provider.endpoint_id and volcano_provider.endpoint_id.startswith("ep-") and not any(m["id"] == volcano_provider.endpoint_id for m in volcano_models):
+                        volcano_models.append({
+                            "id": volcano_provider.endpoint_id,
+                            "name": "豆包 (Default Endpoint)",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": False
+                        })
                 
-                if volcano_models:
-                    providers_status.append({
-                        "provider": "volcano",
-                        "available": True,
-                        "models": volcano_models
-                    })
+                providers_status.append({
+                    "provider": "volcano",
+                    "available": True,
+                    "models": volcano_models
+                })
             except Exception as e:
                 print(f"⚠️ Error in Volcano dynamic model detection: {e}")
+                # Fallback to minimal list on error
+                providers_status.append({
+                    "provider": "volcano",
+                    "available": True,
+                    "models": [
+                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False}
+                    ]
+                })
         
         # Ollama - Fetch from local API
         ollama_provider = self.providers["ollama"]

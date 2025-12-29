@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     openrouter_api_key: str | None = None
     volcano_api_key: str | None = None
+    volcano_endpoint_id: str | None = None
     volcano_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     deepseek_api_key: str | None = None
     ollama_base_url: str = "http://localhost:11434"
