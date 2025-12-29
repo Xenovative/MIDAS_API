@@ -27,7 +27,17 @@ class VolcanoVideoProvider(VideoProvider):
     def is_available(self) -> bool:
         return self.api_key is not None
 
-    async def generate(self, prompt: str, model: str, size: str = "1280x720") -> List[dict]:
+    async def generate(
+        self,
+        prompt: str,
+        model: str,
+        size: str = "1280x720",
+        duration: int = 5,
+        watermark: bool = True,
+        camera_fixed: bool = True,
+        generate_audio: bool = True,
+        ratio: Optional[str] = None,
+    ) -> List[dict]:
         if not self.api_key:
             raise ValueError("Volcano API key not configured")
 
@@ -37,15 +47,22 @@ class VolcanoVideoProvider(VideoProvider):
             # allow 1:1 but keep as provided
             pass
 
+        params = {
+            "resolution": resolution,
+            "duration": duration,
+            "watermark": watermark,
+            "camera_fixed": camera_fixed,
+            "generate_audio": generate_audio
+        }
+        if ratio:
+            params["ratio"] = ratio
+
         create_payload = {
             "model": model,
             "content": [
                 {"type": "text", "text": prompt}
             ],
-            "parameters": {
-                "resolution": resolution,
-                "duration": 5
-            }
+            "parameters": params
         }
 
         # Official Seedance video create endpoint (per doc): /contents/generations/tasks

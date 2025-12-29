@@ -816,6 +816,13 @@ class VolcanoImageProvider(ImageProvider):
                 parts = str(size).split("x")
                 w, h = int(parts[0]), int(parts[1])
                 pixel_count = w * h
+                # Compute ratio (e.g., 16:9) for Volcano parameters
+                def _gcd(a: int, b: int) -> int:
+                    while b:
+                        a, b = b, a % b
+                    return a
+                g = _gcd(w, h) if w > 0 and h > 0 else 1
+                ratio_param = f"{w//g}:{h//g}" if g else None
                 if pixel_count < 3686400:
                     # Scale up while maintaining aspect ratio to meet the 3.68MP minimum
                     if abs(w - h) < 100: # Square-ish
@@ -830,9 +837,11 @@ class VolcanoImageProvider(ImageProvider):
             except Exception as e:
                 print(f"⚠️ Resolution calculation error: {e}, falling back to 2048x2048")
                 actual_size = "2048x2048"
+                ratio_param = None
         else:
             print(f"⚠️ Unknown size format '{size}', forcing 2048x2048")
             actual_size = "2048x2048"
+            ratio_param = None
 
         # Force n=1 for high-res models if needed, as many only support single image generation
         actual_n = n
@@ -867,6 +876,16 @@ class VolcanoImageProvider(ImageProvider):
             if quality == "hd":
                 # Some models support high quality settings
                 request_body["quality"] = "high"
+            else:
+                request_body["quality"] = quality
+
+            # Pass ratio if derived from size
+            if ratio_param:
+                request_body["ratio"] = ratio_param
+
+            # Volcano image API supports ratio/seed/negative_prompt per docs; pass-through if present in prompt metadata
+            # (We keep minimal surface; extend when upstream sends these explicitly.)
+            # Optionally set a default seed for reproducibility; keep None to let server randomize.
 
             print(f"🚀 SENDING REQUEST TO: {self.base_url}/images/generations")
             print(f"📦 REQUEST BODY: {json.dumps(request_body, indent=2) if 'json' in globals() else 'JSON available'}")

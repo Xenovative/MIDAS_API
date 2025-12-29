@@ -108,6 +108,11 @@ class VideoGenerateRequest(BaseModel):
     prompt: str
     model: Optional[str] = None
     size: Optional[str] = "1280x720"
+    duration: Optional[int] = 5
+    watermark: Optional[bool] = True
+    camera_fixed: Optional[bool] = True
+    generate_audio: Optional[bool] = True
+    ratio: Optional[str] = None
 
 
 @router.post("/video_generate")
@@ -116,12 +121,22 @@ async def generate_video(req: VideoGenerateRequest):
     prompt = req.prompt
     model = req.model or os.getenv("VOLCANO_VIDEO_ENDPOINT") or "seedance-1.5-pro"
     size = req.size or "1280x720"
+    duration = req.duration if req.duration is not None else 5
+    watermark = req.watermark if req.watermark is not None else True
+    camera_fixed = req.camera_fixed if req.camera_fixed is not None else True
+    generate_audio = req.generate_audio if req.generate_audio is not None else True
+    ratio = req.ratio
 
-    print(f"🎬 Video generate requested: model={model}, size={size}")
+    print(f"🎬 Video generate requested: model={model}, size={size}, duration={duration}, watermark={watermark}, camera_fixed={camera_fixed}, audio={generate_audio}, ratio={ratio}")
     videos = await video_manager.generate(
         prompt=prompt,
         model=model,
         size=size,
+        duration=duration,
+        watermark=watermark,
+        camera_fixed=camera_fixed,
+        generate_audio=generate_audio,
+        ratio=ratio,
     )
 
     if not videos:
