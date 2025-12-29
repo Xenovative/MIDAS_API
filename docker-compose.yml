@@ -14,6 +14,7 @@ services:
     volumes:
       - backend_data:/data
       - backend_uploads:/app/backend/static/uploads
+      - ./.env:/app/.env
     network_mode: host
     depends_on: []
 
