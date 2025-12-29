@@ -425,86 +425,22 @@ class VolcanoProvider(LLMProvider):
         return self.api_key is not None and self.endpoint_id is not None
     
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """Fetch available inference endpoints from Volcano Engine
-        Volcano Engine uses smart routing, so we primarily focus on the configured endpoint
-        and a few key standard model types.
-        """
+        """Return a single Smart Router entry for Volcano Engine"""
         if not self.is_available():
             return []
             
-        models = []
+        # Volcano Engine is multi-modal and routes automatically.
+        # We only need one entry to represent the configured endpoint.
+        model_id = self.endpoint_id if (self.endpoint_id and self.endpoint_id.startswith("ep-")) else "doubao-pro"
         
-        # 1. Always prioritize the explicitly configured endpoint ID if available
-        if self.endpoint_id and self.endpoint_id.startswith("ep-"):
-            models.append({
-                "id": self.endpoint_id,
-                "name": "豆包 (Smart Router)",
-                "provider": "volcano",
-                "context_window": 128000,
-                "supports_functions": True,
-                "supports_vision": True # Doubao Pro endpoints are typically multimodal
-            })
-            
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                # 2. Try to fetch other running endpoints but keep it lean
-                url = f"{self.base_url}/endpoints"
-                print(f"🔍 Fetching Volcano endpoints for discovery: {url}")
-                response = await client.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    params={"page_num": 1, "page_size": 20} # Smaller page size
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    endpoints = data.get("items", [])
-                    
-                    for ep in endpoints:
-                        ep_id = ep.get("endpoint_id")
-                        # Skip if already added as default or is not running
-                        if not ep_id or any(m["id"] == ep_id for m in models) or ep.get("status") != "Running":
-                            continue
-                            
-                        model_name = ep.get("model_name", "").lower()
-                        
-                        # Filter out non-chat models (video/audio)
-                        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
-                        if any(kw in model_name for kw in non_chat_keywords):
-                            continue
-                            
-                        models.append({
-                            "id": ep_id,
-                            "name": f"豆包 ({ep.get('model_name', ep.get('name', ep_id))})",
-                            "provider": "volcano",
-                            "context_window": 128000,
-                            "supports_functions": True,
-                            "supports_vision": True # Volcano endpoints are generally multimodal now
-                        })
-                    
-                    print(f"✅ Found {len(models)} Volcano endpoints")
-                
-                # 3. Add standard friendly IDs if not already present
-                standard_ids = ["doubao-pro", "doubao-lite"]
-                for sid in standard_ids:
-                    if not any(m["id"] == sid for m in models):
-                        models.append({
-                            "id": sid,
-                            "name": f"豆包 ({sid.capitalize()})",
-                            "provider": "volcano",
-                            "context_window": 128000,
-                            "supports_functions": True,
-                            "supports_vision": True
-                        })
-                        
-            return models
-        except Exception as e:
-            print(f"⚠️ Error in Volcano discovery: {e}")
-            # Ensure at least the configured endpoint is returned on error if it's valid
-            return models if models else []
+        return [{
+            "id": model_id,
+            "name": "豆包 (Smart Router)",
+            "provider": "volcano",
+            "context_window": 128000,
+            "supports_functions": True,
+            "supports_vision": True
+        }]
 
     def _get_endpoint_id(self, model: str) -> str:
         """Get the actual endpoint ID for a model name"""
@@ -1115,47 +1051,8 @@ class LLMManager:
         volcano_provider = self.providers["volcano"]
         if volcano_provider.is_available():
             try:
-                # Try dynamic detection first
+                # Volcano Engine uses smart routing, so we only need one entry
                 volcano_models = await volcano_provider.get_available_models()
-                
-                # If dynamic detection failed or returned nothing, use fallback
-                if not volcano_models:
-                    volcano_models = [
-                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
-                        {"id": "doubao-lite", "name": "豆包 Lite", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
-                        {"id": "doubao-vision", "name": "豆包 Vision", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": True}
-                    ]
-                    
-                    # Add endpoint IDs if they are configured in environment
-                    import os
-                    model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
-                    if model_map_str:
-                        try:
-                            for item in model_map_str.split(","):
-                                if ":" in item:
-                                    model_id, endpoint_id = item.split(":", 1)
-                                    if not any(m["id"] == model_id for m in volcano_models):
-                                        volcano_models.append({
-                                            "id": model_id,
-                                            "name": f"豆包 ({model_id})",
-                                            "provider": "volcano",
-                                            "context_window": 128000,
-                                            "supports_functions": True,
-                                            "supports_vision": False
-                                        })
-                        except:
-                            pass
-                    
-                    # Also add the default endpoint if not mapped and it's a valid ID
-                    if volcano_provider.endpoint_id and volcano_provider.endpoint_id.startswith("ep-") and not any(m["id"] == volcano_provider.endpoint_id for m in volcano_models):
-                        volcano_models.append({
-                            "id": volcano_provider.endpoint_id,
-                            "name": "豆包 (Default Endpoint)",
-                            "provider": "volcano",
-                            "context_window": 128000,
-                            "supports_functions": True,
-                            "supports_vision": False
-                        })
                 
                 providers_status.append({
                     "provider": "volcano",
@@ -1163,13 +1060,12 @@ class LLMManager:
                     "models": volcano_models
                 })
             except Exception as e:
-                print(f"⚠️ Error in Volcano dynamic model detection: {e}")
-                # Fallback to minimal list on error
+                print(f"⚠️ Error in Volcano discovery: {e}")
                 providers_status.append({
                     "provider": "volcano",
                     "available": True,
                     "models": [
-                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False}
+                        {"id": "doubao-pro", "name": "豆包 (Smart Router)", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": True}
                     ]
                 })
         
