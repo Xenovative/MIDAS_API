@@ -916,6 +916,11 @@ class VolcanoImageProvider(ImageProvider):
                 }
             }
             
+            print("🎞️ VOLCANO VIDEO CREATE")
+            print(f"   URL: {self.base_url}/content_generation/tasks")
+            print(f"   Model: {model}")
+            print(f"   Payload: {create_payload}")
+            
             response = await client.post(
                 f"{self.base_url}/content_generation/tasks",
                 headers={
@@ -928,7 +933,7 @@ class VolcanoImageProvider(ImageProvider):
             if response.status_code != 200:
                 error_text = response.text
                 print(f"❌ Volcano Video Task Creation Error ({response.status_code}): {error_text}")
-                raise ValueError(f"Volcano Video Error: {error_text}")
+                raise ValueError(f"Volcano Video Error: {error_text or response.reason_phrase}")
                 
             task_data = response.json()
             task_id = task_data.get("id")
