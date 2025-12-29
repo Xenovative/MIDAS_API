@@ -850,7 +850,7 @@ class VolcanoImageProvider(ImageProvider):
         if not self.api_key:
             return []
             
-        return [
+        models = [
             {
                 "id": "seedream-4.0",
                 "name": "Seedream 4.0 (Image)",
@@ -874,6 +874,35 @@ class VolcanoImageProvider(ImageProvider):
                 "type": "video"
             }
         ]
+
+        # Add specialized endpoints if configured
+        if settings.volcano_image_endpoint:
+            models.append({
+                "id": settings.volcano_image_endpoint,
+                "name": f"Volcano Image (Dedicated)",
+                "provider": "volcano",
+                "sizes": ["1024x1024", "1024x1792", "1792x1024"],
+                "qualities": ["standard"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False,
+                "type": "image"
+            })
+            
+        if settings.volcano_video_endpoint:
+            models.append({
+                "id": settings.volcano_video_endpoint,
+                "name": f"Volcano Video (Dedicated)",
+                "provider": "volcano",
+                "sizes": ["1280x720", "720x1280", "1024x1024"],
+                "qualities": ["standard"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False,
+                "type": "video"
+            })
+            
+        return models
 
 
 class ImageProviderManager:

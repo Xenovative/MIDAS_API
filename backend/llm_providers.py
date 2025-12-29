@@ -696,9 +696,12 @@ class VolcanoProvider(LLMProvider):
             raise ValueError("Volcano Engine API key or endpoint ID not configured")
         
         # Check if user is trying to use a non-chat model
+        from backend.image_providers import image_manager
+        all_image_models = [m["id"] for m in image_manager.get_available_models()]
         non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
-        if any(kw in model.lower() for kw in non_chat_keywords):
-            yield f"Error: Model '{model}' is a non-chat model (video/audio/image) and is not supported for chat."
+        
+        if model in all_image_models or any(kw in model.lower() for kw in non_chat_keywords):
+            yield f"Error: Model '{model}' is a non-chat model (video/audio/image) and is not supported for chat completions. Please use the image generation interface."
             return
 
         endpoint_id = self._get_endpoint_id(model)

@@ -630,18 +630,26 @@ async def chat(
             print("⚠️ Realtime context unavailable")
 
     # Check if this is an image or video generation model
-    # Standard models are hardcoded, but we also check for Volcano media models dynamically
-    hardcoded_media_models = ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+    # Use image_manager for robust detection
+    all_image_models = [m["id"] for m in image_manager.get_available_models()]
     
     is_volcano_media = False
     if request.provider == "volcano":
+        from backend.config import settings
         media_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v"]
-        # Check both the model ID and the bot name/context if available
-        # But primarily we check the model ID which for Volcano is often the endpoint ID
-        # or a friendly name from VOLCANO_MODEL_MAP
-        is_volcano_media = any(kw in request.model.lower() for kw in media_keywords)
         
-    is_image_model = request.model in hardcoded_media_models or is_volcano_media
+        # Check if it matches specialized endpoints or has media keywords or is in the image manager
+        is_volcano_media = (
+            request.model in all_image_models or
+            any(kw in request.model.lower() for kw in media_keywords) or
+            (settings.volcano_image_endpoint and request.model == settings.volcano_image_endpoint) or
+            (settings.volcano_video_endpoint and request.model == settings.volcano_video_endpoint)
+        )
+        print(f"🔍 Volcano Media Check: model={request.model}, is_media={is_volcano_media}")
+        print(f"   Image EP: {settings.volcano_image_endpoint}")
+        print(f"   Video EP: {settings.volcano_video_endpoint}")
+        
+    is_image_model = request.model in all_image_models or is_volcano_media
     
     generated_images = []
     generated_videos = []
@@ -998,18 +1006,24 @@ async def chat_stream(
             agent_executions = list(rag_execs) + list(realtime_execs)
             
             # Check if this is an image or video generation model
-            # Standard models are hardcoded, but we also check for Volcano media models dynamically
-            hardcoded_media_models = ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+            # Use image_manager for robust detection
+            all_image_models = [m["id"] for m in image_manager.get_available_models()]
             
             is_volcano_media = False
             if request.provider == "volcano":
+                from backend.config import settings
                 media_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v"]
-                is_volcano_media = any(kw in request.model.lower() for kw in media_keywords)
+                is_volcano_media = (
+                    request.model in all_image_models or
+                    any(kw in request.model.lower() for kw in media_keywords) or
+                    (settings.volcano_image_endpoint and request.model == settings.volcano_image_endpoint) or
+                    (settings.volcano_video_endpoint and request.model == settings.volcano_video_endpoint)
+                )
                 
-            is_image_model = request.model in hardcoded_media_models or is_volcano_media
+            is_image_model = request.model in all_image_models or is_volcano_media
             
             if is_image_model:
-                media_type = "video" if "seedance" in request.model.lower() or "video" in request.model.lower() else "image"
+                media_type = "video" if "seedance" in request.model.lower() or "video" in request.model.lower() or (settings.volcano_video_endpoint and request.model == settings.volcano_video_endpoint) else "image"
                 # Direct media generation when model is selected
                 yield f"data: {json.dumps({'type': 'content', 'content': f'🎨 Generating {media_type} with {request.model}...'})}\n\n"
                 
