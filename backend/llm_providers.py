@@ -425,7 +425,7 @@ class VolcanoProvider(LLMProvider):
         return self.api_key is not None and self.endpoint_id is not None
     
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """Fetch all available running chat endpoints from Volcano Engine"""
+        """Fetch all available running chat and media endpoints from Volcano Engine"""
         if not self.is_available():
             return []
             
@@ -439,51 +439,139 @@ class VolcanoProvider(LLMProvider):
                 "provider": "volcano",
                 "context_window": 128000,
                 "supports_functions": True,
-                "supports_vision": True
+                "supports_vision": True,
+                "supports_image_generation": False
             })
             
+        # 2. Add standard models as default options if not already discovered
+        standard_models = [
+            {"id": "doubao-pro", "name": "豆包 Pro", "is_media": False},
+            {"id": "doubao-lite", "name": "豆包 Lite", "is_media": False},
+            {"id": "seedream-4.0", "name": "Seedream 4.0 (Image)", "is_media": True},
+            {"id": "seedance-1.5-pro", "name": "Seedance 1.5 Pro (Video)", "is_media": True}
+        ]
+        
+        for sm in standard_models:
+            if not any(m["id"] == sm["id"] for m in models):
+                models.append({
+                    "id": sm["id"],
+                    "name": f"豆包 ({sm['name']})",
+                    "provider": "volcano",
+                    "context_window": 128000,
+                    "supports_functions": not sm["is_media"],
+                    "supports_vision": True,
+                    "supports_image_generation": sm["is_media"]
+                })
+
+        # 3. Add friendly aliases from environment variables
+        import os
+        model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
+        if model_map_str:
+            try:
+                for item in model_map_str.split(","):
+                    if ":" in item:
+                        alias, ep_id = item.split(":", 1)
+                        if not any(m["id"] == ep_id for m in models):
+                            is_media = any(kw in alias.lower() for kw in ["seedance", "seedream", "video", "image"])
+                            models.append({
+                                "id": ep_id,
+                                "name": f"豆包 ({alias})",
+                                "provider": "volcano",
+                                "context_window": 128000,
+                                "supports_functions": not is_media,
+                                "supports_vision": True,
+                                "supports_image_generation": is_media
+                            })
+            except Exception as e:
+                print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
+
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # 2. Fetch all endpoints from the management API
-                url = f"{self.base_url}/endpoints"
-                print(f"🔍 Fetching Volcano endpoints for discovery: {url}")
-                response = await client.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    params={"page_num": 1, "page_size": 100}
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    endpoints = data.get("items", [])
-                    
-                    for ep in endpoints:
-                        ep_id = ep.get("endpoint_id")
-                        # Skip if already added or not running
-                        if not ep_id or any(m["id"] == ep_id for m in models) or ep.get("status") != "Running":
-                            continue
+                # 4. Try OpenAI-compatible /models
+                url_models = f"{self.base_url}/models"
+                print(f"🔍 Fetching Volcano models from: {url_models}")
+                try:
+                    resp_models = await client.get(
+                        url_models,
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json"
+                        }
+                    )
+                    if resp_models.status_code == 200:
+                        data = resp_models.json()
+                        for item in data.get("data", []):
+                            model_id = item.get("id")
+                            if not model_id or any(m["id"] == model_id for m in models):
+                                continue
                             
-                        model_name = ep.get("model_name", "").lower()
-                        
-                        # Filter out non-chat models
-                        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
-                        if any(kw in model_name for kw in non_chat_keywords):
-                            continue
+                            name = item.get("name") or model_id
+                            lower_id = model_id.lower()
+                            lower_name = name.lower()
                             
-                        models.append({
-                            "id": ep_id,
-                            "name": f"豆包 ({ep.get('model_name', ep.get('name', ep_id))})",
-                            "provider": "volcano",
-                            "context_window": 128000,
-                            "supports_functions": True,
-                            "supports_vision": True
-                        })
+                            is_media = any(kw in lower_id for kw in ["seedance", "seedream", "video", "image"]) or \
+                                       any(kw in lower_name for kw in ["seedance", "seedream", "video", "image"])
+                            is_audio = any(kw in lower_id for kw in ["speech", "voice", "audio"]) or \
+                                       any(kw in lower_name for kw in ["speech", "voice", "audio"])
+                            
+                            if is_audio:
+                                continue
+                                
+                            models.append({
+                                "id": model_id,
+                                "name": f"豆包 ({name})",
+                                "provider": "volcano",
+                                "context_window": 128000,
+                                "supports_functions": not is_media,
+                                "supports_vision": True,
+                                "supports_image_generation": is_media
+                            })
+                except Exception as e:
+                    print(f"⚠️ /models discovery failed: {e}")
+
+                # 5. Try /endpoints as supplement
+                url_endpoints = f"{self.base_url}/endpoints"
+                print(f"🔍 Fetching Volcano endpoints from: {url_endpoints}")
+                try:
+                    resp_endpoints = await client.get(
+                        url_endpoints,
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        params={"page_num": 1, "page_size": 100}
+                    )
+                    if resp_endpoints.status_code == 200:
+                        data = resp_endpoints.json()
+                        for ep in data.get("items", []):
+                            ep_id = ep.get("endpoint_id")
+                            if not ep_id or any(m["id"] == ep_id for m in models) or ep.get("status") != "Running":
+                                continue
+                                
+                            model_name = ep.get("model_name", "").lower()
+                            ep_name = ep.get("name", "").lower()
+                            
+                            is_media = any(kw in model_name for kw in ["seedance", "seedream", "video", "image"]) or \
+                                       any(kw in ep_name for kw in ["seedance", "seedream", "video", "image"])
+                            is_audio = any(kw in model_name for kw in ["speech", "voice", "audio"]) or \
+                                       any(kw in ep_name for kw in ["speech", "voice", "audio"])
+                            
+                            if is_audio:
+                                continue
+                                
+                            models.append({
+                                "id": ep_id,
+                                "name": f"豆包 ({ep.get('model_name', ep.get('name', ep_id))})",
+                                "provider": "volcano",
+                                "context_window": 128000,
+                                "supports_functions": not is_media,
+                                "supports_vision": True,
+                                "supports_image_generation": is_media
+                            })
+                except Exception as e:
+                    print(f"⚠️ /endpoints discovery failed: {e}")
                     
-                    print(f"✅ Found {len(models)} Volcano endpoints")
-                
+            print(f"✅ Total Volcano models found: {len(models)}")
             return models
         except Exception as e:
             print(f"⚠️ Error in Volcano discovery: {e}")

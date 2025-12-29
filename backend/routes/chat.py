@@ -630,7 +630,18 @@ async def chat(
             print("⚠️ Realtime context unavailable")
 
     # Check if this is an image or video generation model
-    is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+    # Standard models are hardcoded, but we also check for Volcano media models dynamically
+    hardcoded_media_models = ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+    
+    is_volcano_media = False
+    if request.provider == "volcano":
+        media_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v"]
+        # Check both the model ID and the bot name/context if available
+        # But primarily we check the model ID which for Volcano is often the endpoint ID
+        # or a friendly name from VOLCANO_MODEL_MAP
+        is_volcano_media = any(kw in request.model.lower() for kw in media_keywords)
+        
+    is_image_model = request.model in hardcoded_media_models or is_volcano_media
     
     generated_images = []
     generated_videos = []
@@ -987,7 +998,15 @@ async def chat_stream(
             agent_executions = list(rag_execs) + list(realtime_execs)
             
             # Check if this is an image or video generation model
-            is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+            # Standard models are hardcoded, but we also check for Volcano media models dynamically
+            hardcoded_media_models = ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+            
+            is_volcano_media = False
+            if request.provider == "volcano":
+                media_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v"]
+                is_volcano_media = any(kw in request.model.lower() for kw in media_keywords)
+                
+            is_image_model = request.model in hardcoded_media_models or is_volcano_media
             
             if is_image_model:
                 media_type = "video" if "seedance" in request.model.lower() or "video" in request.model.lower() else "image"
