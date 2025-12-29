@@ -78,6 +78,10 @@ class VolcanoVideoProvider(VideoProvider):
                 )
 
                 if response.status_code == 200:
+                    try:
+                        print(f"✅ Video task create OK ({endpoint}) -> {response.text}")
+                    except Exception:
+                        pass
                     break
 
                 last_error = response.text or response.reason_phrase
@@ -90,14 +94,20 @@ class VolcanoVideoProvider(VideoProvider):
             task_id = task_data.get("id")
             if not task_id:
                 raise ValueError(f"Failed to get task ID from Volcano: {task_data}")
+            print(f"🆔 Video task id: {task_id}, raw: {task_data}")
 
             # Poll for results
             poll_endpoints = [
-                f"{self.base_url}/content-generation/tasks/{task_id}",
-                f"{self.base_url}/content_generation/tasks/{task_id}",
+                f"{self.base_url}/contents/generations/tasks/{task_id}",   # doc path
+                f"{self.base_url}/content-generation/tasks/{task_id}",     # hyphen fallback
+                f"{self.base_url}/content_generation/tasks/{task_id}",     # underscore fallback
+                f"{self.base_url}/content-generation/video-tasks/{task_id}",
+                f"{self.base_url}/content_generation/video-tasks/{task_id}",
+                f"{self.base_url}/video-generation/tasks/{task_id}",
+                f"{self.base_url}/video_generation/tasks/{task_id}",
             ]
             print(f"⏳ Polling Volcano video task: {task_id}")
-            for _ in range(120):  # 120 seconds timeout
+            for i in range(300):  # ~600 seconds timeout (2s interval)
                 await asyncio.sleep(2)
                 status_response = None
                 for poll_ep in poll_endpoints:
@@ -108,11 +118,15 @@ class VolcanoVideoProvider(VideoProvider):
                     if status_response.status_code == 200:
                         break
                 if status_response is None or status_response.status_code != 200:
+                    if i % 10 == 0:
+                        print(f"⚠️ Poll non-200 (poll {i}, task {task_id}): {status_response.status_code if status_response else 'no response'} {status_response.text if status_response else ''}")
                     continue
 
                 status_data = status_response.json()
                 status = status_data.get("status")
-
+                if i % 10 == 0:
+                    print(f"ℹ️ Video task status: {status} (poll {i}, task {task_id})")
+                
                 if status == "succeeded":
                     video_url = status_data.get("output", {}).get("video", {}).get("url") \
                         or status_data.get("output", {}).get("url")
@@ -124,7 +138,7 @@ class VolcanoVideoProvider(VideoProvider):
                     raise ValueError(f"Volcano Video Generation failed: {error_msg}")
                 if status == "cancelled":
                     raise ValueError("Volcano Video Generation was cancelled")
-
+                
             raise TimeoutError("Volcano Video Generation timed out")
 
     def get_available_models(self) -> List[dict]:
