@@ -20,6 +20,7 @@ import re
 import base64
 import os
 import uuid
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -99,6 +100,43 @@ def detect_image_generation_request(message: str, has_images: bool = False) -> t
             return True, prompt, False
     
     return False, "", False
+
+
+# -------- Video generation (Volcano Seedance) --------
+class VideoGenerateRequest(BaseModel):
+    prompt: str
+    model: Optional[str] = None
+    size: Optional[str] = "1280x720"
+
+
+@router.post("/video_generate")
+async def generate_video(req: VideoGenerateRequest):
+    """Direct video generation endpoint (Volcano Seedance)."""
+    prompt = req.prompt
+    model = req.model or os.getenv("VOLCANO_VIDEO_ENDPOINT") or "seedance-1.5-pro"
+    size = req.size or "1280x720"
+
+    print(f"🎬 Video generate requested: model={model}, size={size}")
+    videos = await image_manager.generate(
+        prompt=prompt,
+        model=model,
+        size=size,
+        quality="standard",
+        n=1,
+    )
+
+    if not videos:
+        raise HTTPException(status_code=500, detail="No video generated")
+
+    video_url = videos[0].get("url")
+    if not video_url:
+        raise HTTPException(status_code=500, detail="Video generated but no URL returned")
+
+    return {
+        "url": video_url,
+        "type": videos[0].get("type", "video"),
+        "revised_prompt": videos[0].get("revised_prompt"),
+    }
 
 
 async def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1", image: Optional[str] = None, reference_images: Optional[List[str]] = None, size: str = "1024x1024", image_fidelity: str = "high", moderation: str = "low") -> dict:
