@@ -393,17 +393,21 @@ export default function ChatMessage({
         {message.meta_data?.videos && message.meta_data.videos.length > 0 && (
           <div className="flex flex-wrap gap-4 mb-4">
             {message.meta_data.videos.map((videoUrl, idx) => (
-              <div key={idx} className="relative group max-w-2xl rounded-xl overflow-hidden border border-border bg-black aspect-video flex items-center justify-center shadow-lg">
-                <video 
-                  src={videoUrl} 
-                  controls 
-                  className="max-w-full max-h-[500px]"
+              <div
+                key={idx}
+                className="relative group max-w-2xl rounded-xl overflow-hidden border border-border bg-black flex items-center justify-center shadow-lg"
+              >
+                <video
+                  src={videoUrl}
+                  controls
+                  className="max-w-full max-h-[500px] w-auto h-auto object-contain bg-black"
+                  style={{ aspectRatio: 'unset' }}
                 >
                   Your browser does not support the video tag.
                 </video>
                 <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <a 
-                    href={videoUrl} 
+                  <a
+                    href={videoUrl}
                     download={`video-${idx}.mp4`}
                     className="p-2 bg-background/80 hover:bg-background rounded-full text-foreground shadow-sm"
                     title="Download video"
