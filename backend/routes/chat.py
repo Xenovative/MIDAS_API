@@ -207,7 +207,8 @@ async def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1", im
             
             return {
                 "url": image_url,
-                "revised_prompt": images[0].get("revised_prompt")
+                "revised_prompt": images[0].get("revised_prompt"),
+                "type": images[0].get("type", "image")
             }
         else:
             raise ValueError("No images generated")
@@ -628,8 +629,11 @@ async def chat(
         else:
             print("⚠️ Realtime context unavailable")
 
-    # Check if this is an image generation model
-    is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
+    # Check if this is an image or video generation model
+    is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
+    
+    generated_images = []
+    generated_videos = []
     
     # Get LLM response
     try:
@@ -698,15 +702,21 @@ async def chat(
                     moderation=request.moderation or "low"
                 )
                 
-                # Format response with image
-                response_content = f"🎨 Generated image using {request.model}"
+                # Format response with image or video
+                media_type = "video" if "seedance" in request.model.lower() or "video" in request.model.lower() else "image"
+                response_content = f"🎨 Generated {media_type} using {request.model}"
                 if image_result.get("revised_prompt"):
                     response_content += f"\n\n**Revised prompt:** {image_result['revised_prompt']}"
                 
-                # Add image to generated_images list
-                generated_images = [image_result["url"]]
+                # Add to appropriate list in meta_data
+                if media_type == "video":
+                    generated_videos = [image_result["url"]]
+                    generated_images = []
+                else:
+                    generated_images = [image_result["url"]]
+                    generated_videos = []
                 
-                print(f"✅ Image generated successfully: {image_result['url'][:100]}")
+                print(f"✅ {media_type.capitalize()} generated successfully: {image_result['url'][:100]}")
             except Exception as img_error:
                 print(f"❌ Image generation failed: {img_error}")
                 
@@ -775,13 +785,19 @@ async def chat(
             agent_executions = list(realtime_execs)
             generated_images = []
         
-        # Save assistant message with generated images in meta_data
+        # Save assistant message with generated media in meta_data
+        meta_data = {"agent_executions": agent_executions} if agent_executions else {}
+        if generated_images:
+            meta_data["images"] = generated_images
+        if generated_videos:
+            meta_data["videos"] = generated_videos
+            
         assistant_message = Message(
             conversation_id=conversation.id,
             role="assistant",
             content=response_content,
             model=request.model,
-            meta_data={"images": generated_images, "agent_executions": agent_executions} if generated_images or agent_executions else None
+            meta_data=meta_data if meta_data else None
         )
         db.add(assistant_message)
         
@@ -935,6 +951,8 @@ async def chat_stream(
         try:
             llm_provider = llm_manager.get_provider(request.provider)
             full_response = ""
+            generated_images = []
+            generated_videos = []
             
             # Send conversation ID first
             yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation.id})}\n\n"
@@ -968,12 +986,13 @@ async def chat_stream(
 
             agent_executions = list(rag_execs) + list(realtime_execs)
             
-            # Check if this is an image generation model
-            is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview"]
+            # Check if this is an image or video generation model
+            is_image_model = request.model in ["gpt-image-1", "dall-e-3", "dall-e-2", "gemini-2.5-flash-image", "gemini-3-pro-image-preview", "seedream-4.0", "seedance-1.5-pro"]
             
             if is_image_model:
-                # Direct image generation when image model is selected
-                yield f"data: {json.dumps({'type': 'content', 'content': f'🎨 Generating image with {request.model}...'})}\n\n"
+                media_type = "video" if "seedance" in request.model.lower() or "video" in request.model.lower() else "image"
+                # Direct media generation when model is selected
+                yield f"data: {json.dumps({'type': 'content', 'content': f'🎨 Generating {media_type} with {request.model}...'})}\n\n"
                 
                 # Multi-turn image generation: Check if there's a previous generated image
                 input_image = None
@@ -1034,15 +1053,21 @@ async def chat_stream(
                         moderation=request.moderation or "low"
                     )
                     
-                    full_response = f"🎨 Generated image using {request.model}"
+                    full_response = f"🎨 Generated {media_type} using {request.model}"
                     if image_result.get("revised_prompt"):
                         full_response += f"\n\n**Revised prompt:** {image_result['revised_prompt']}"
                     
-                    # Send the generated image
-                    yield f"data: {json.dumps({'type': 'image', 'url': image_result['url']})}\n\n"
+                    # Send the generated media
+                    if media_type == "video":
+                        yield f"data: {json.dumps({'type': 'video', 'url': image_result['url']})}\n\n"
+                        generated_videos = [image_result["url"]]
+                        generated_images = []
+                    else:
+                        yield f"data: {json.dumps({'type': 'image', 'url': image_result['url']})}\n\n"
+                        generated_images = [image_result["url"]]
+                        generated_videos = []
+                        
                     yield f"data: {json.dumps({'type': 'content', 'content': full_response})}\n\n"
-                    
-                    generated_images = [image_result["url"]]
                 except Exception as img_error:
                     print(f"❌ Image generation failed: {img_error}")
                     
@@ -1113,13 +1138,19 @@ async def chat_stream(
                 
                 generated_images = []
             
-            # Save assistant message with generated images in meta_data
+            # Save final message
+            meta_data = {"agent_executions": agent_executions} if agent_executions else {}
+            if generated_images:
+                meta_data["images"] = generated_images
+            if generated_videos:
+                meta_data["videos"] = generated_videos
+                
             assistant_message = Message(
                 conversation_id=conversation.id,
                 role="assistant",
                 content=full_response,
                 model=request.model,
-                meta_data={"images": generated_images, "agent_executions": agent_executions} if generated_images or agent_executions else None
+                meta_data=meta_data if meta_data else None
             )
             db.add(assistant_message)
             conversation.updated_at = datetime.utcnow()

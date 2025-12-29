@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink, FileText, Brain } from 'lucide-react'
+import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink, FileText, Brain, Play, Download } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -75,11 +75,13 @@ export default function ChatMessage({
   // Parse artifacts from message content
   const { artifacts, contentWithoutArtifacts } = parseArtifacts(displayContent)
   
-  // Check if this is an image generation in progress
-  const isGeneratingImage = !isUser && 
+  // Check if this is an image or video generation in progress
+  const isGeneratingMedia = !isUser && 
     (message.content.includes('🎨 Generating image') || 
+     message.content.includes('🎨 Generating video') ||
      message.content.includes('🔄 Refining previous image')) &&
     (!message.meta_data?.images || message.meta_data.images.length === 0) &&
+    (!message.meta_data?.videos || message.meta_data.videos.length === 0) &&
     !message.content.includes('❌') && // Don't show placeholder if there's an error
     !message.content.includes('🚫') && // Don't show placeholder for policy violations
     !message.content.includes('⏱️') && // Don't show placeholder for rate limits
@@ -328,10 +330,16 @@ export default function ChatMessage({
           )}
         </div>
         
-        {/* Display loading placeholder for image generation */}
-        {isGeneratingImage && (
+        {/* Display loading placeholder for media generation */}
+        {isGeneratingMedia && (
           <ImageLoadingPlaceholder 
-            message={message.content.includes('🔄 Refining') ? "Refining image..." : "Generating image..."}
+            message={
+              message.content.includes('🔄 Refining') 
+                ? "Refining image..." 
+                : message.content.includes('video') 
+                  ? "Generating video..." 
+                  : "Generating image..."
+            }
             previousImage={message.content.includes('🔄 Refining') ? previousImage : null}
           />
         )}
@@ -360,7 +368,6 @@ export default function ChatMessage({
               if (typeof img === 'object' && img.data) {
                 // New format: object with data and type
                 imageSrc = `data:${img.type};base64,${img.data}`
-                console.log(`Image ${idx} (object):`, { type: img.type, dataLength: img.data.length })
               } else if (typeof img === 'string') {
                 // Old format: string (URL, path, or base64)
                 if (img.startsWith('http') || img.startsWith('/') || img.startsWith('data:')) {
@@ -369,11 +376,6 @@ export default function ChatMessage({
                   // Raw base64 without prefix
                   imageSrc = `data:image/png;base64,${img}`
                 }
-                console.log(`Image ${idx} (string):`, { 
-                  length: img.length, 
-                  prefix: img.substring(0, 30),
-                  finalSrc: imageSrc.substring(0, 50)
-                })
               }
               
               return (
@@ -384,6 +386,33 @@ export default function ChatMessage({
                 />
               )
             })}
+          </div>
+        )}
+
+        {/* Display videos (generated for assistant) */}
+        {message.meta_data?.videos && message.meta_data.videos.length > 0 && (
+          <div className="flex flex-wrap gap-4 mb-4">
+            {message.meta_data.videos.map((videoUrl, idx) => (
+              <div key={idx} className="relative group max-w-2xl rounded-xl overflow-hidden border border-border bg-black aspect-video flex items-center justify-center shadow-lg">
+                <video 
+                  src={videoUrl} 
+                  controls 
+                  className="max-w-full max-h-[500px]"
+                >
+                  Your browser does not support the video tag.
+                </video>
+                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <a 
+                    href={videoUrl} 
+                    download={`video-${idx}.mp4`}
+                    className="p-2 bg-background/80 hover:bg-background rounded-full text-foreground shadow-sm"
+                    title="Download video"
+                  >
+                    <Download size={16} />
+                  </a>
+                </div>
+              </div>
+            ))}
           </div>
         )}
         

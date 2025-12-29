@@ -384,10 +384,10 @@ export default function ChatArea() {
           } else if (data.type === 'content') {
             fullContent += data.content
             setStreamingMessage(fullContent)
-          } else if (data.type === 'image') {
-            // Image generation started - show loading placeholder
-            console.log('🎨 Image generating:', data.url)
-            // The image will be included in the final 'done' event
+          } else if (data.type === 'image' || data.type === 'video') {
+            // Media generation started - show loading placeholder
+            console.log(`🎨 ${data.type} generating:`, data.url)
+            // The media will be included in the final 'done' event
           } else if (data.type === 'agent_executions') {
             setAgentExecutions(prev => [...prev, ...data.executions])
           } else if (data.type === 'title') {

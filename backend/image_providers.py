@@ -692,6 +692,160 @@ class ReplicateProvider(ImageProvider):
         ]
 
 
+class VolcanoImageProvider(ImageProvider):
+    """火山引擎 (Volcano Engine) Image & Video generation"""
+    
+    def __init__(self):
+        self.api_key = settings.volcano_api_key
+        self.base_url = settings.volcano_base_url
+    
+    def is_available(self) -> bool:
+        return self.api_key is not None
+        
+    async def generate(
+        self,
+        prompt: str,
+        size: str = "1024x1024",
+        quality: str = "standard",
+        style: Optional[str] = None,
+        n: int = 1,
+        model: str = "seedream-4.0",
+        image: Optional[str] = None,
+        reference_images: Optional[List[str]] = None,
+        image_fidelity: str = "high",
+        moderation: str = "low"
+    ) -> List[dict]:
+        if not self.api_key:
+            raise ValueError("Volcano API key not configured")
+            
+        # Determine if it's video or image generation
+        is_video = "seedance" in model.lower() or "video" in model.lower()
+        
+        if is_video:
+            return await self._generate_video(prompt, model, size)
+        else:
+            return await self._generate_image(prompt, model, size, n)
+
+    async def _generate_image(self, prompt: str, model: str, size: str, n: int) -> List[dict]:
+        """OpenAI-compatible image generation for Seedream"""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{self.base_url}/images/generations",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "size": size,
+                    "n": n
+                }
+            )
+            
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"❌ Volcano Image Error ({response.status_code}): {error_text}")
+                raise ValueError(f"Volcano Image Error: {error_text}")
+                
+            data = response.json()
+            return [{"url": img["url"], "revised_prompt": img.get("revised_prompt"), "type": "image"} for img in data.get("data", [])]
+
+    async def _generate_video(self, prompt: str, model: str, size: str) -> List[dict]:
+        """Task-based video generation for Seedance"""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # 1. Create task
+            response = await client.post(
+                f"{self.base_url}/content_generation/tasks",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "input": {
+                        "prompt": prompt
+                    },
+                    "parameters": {
+                        "resolution": size if "x" in size else "1280x720"
+                    }
+                }
+            )
+            
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"❌ Volcano Video Task Creation Error ({response.status_code}): {error_text}")
+                raise ValueError(f"Volcano Video Error: {error_text}")
+                
+            task_data = response.json()
+            task_id = task_data.get("id")
+            
+            if not task_id:
+                raise ValueError(f"Failed to get task ID from Volcano: {task_data}")
+                
+            # 2. Poll for results
+            print(f"⏳ Polling Volcano video task: {task_id}")
+            for _ in range(120):  # 120 seconds timeout
+                await asyncio.sleep(2)
+                status_response = await client.get(
+                    f"{self.base_url}/content_generation/tasks/{task_id}",
+                    headers={"Authorization": f"Bearer {self.api_key}"}
+                )
+                
+                if status_response.status_code != 200:
+                    continue
+                    
+                status_data = status_response.json()
+                status = status_data.get("status")
+                
+                if status == "succeeded":
+                    video_url = status_data.get("output", {}).get("video", {}).get("url")
+                    if not video_url:
+                        # Some versions might have a different structure
+                        video_url = status_data.get("output", {}).get("url")
+                        
+                    if video_url:
+                        return [{"url": video_url, "type": "video", "revised_prompt": None}]
+                    else:
+                        raise ValueError(f"Video URL not found in successful task: {status_data}")
+                elif status == "failed":
+                    error_msg = status_data.get("error", {}).get("message", "Unknown error")
+                    raise ValueError(f"Volcano Video Generation failed: {error_msg}")
+                elif status == "cancelled":
+                    raise ValueError("Volcano Video Generation was cancelled")
+                    
+            raise TimeoutError("Volcano Video Generation timed out")
+
+    def get_available_models(self) -> List[dict]:
+        if not self.api_key:
+            return []
+            
+        return [
+            {
+                "id": "seedream-4.0",
+                "name": "Seedream 4.0 (Image)",
+                "provider": "volcano",
+                "sizes": ["1024x1024", "1024x1792", "1792x1024"],
+                "qualities": ["standard"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False,
+                "type": "image"
+            },
+            {
+                "id": "seedance-1.5-pro",
+                "name": "Seedance 1.5 Pro (Video)",
+                "provider": "volcano",
+                "sizes": ["1280x720", "720x1280", "1024x1024"],
+                "qualities": ["standard"],
+                "styles": [],
+                "max_images": 1,
+                "supports_style": False,
+                "type": "video"
+            }
+        ]
+
+
 class ImageProviderManager:
     """Manage multiple image generation providers"""
     
@@ -700,7 +854,8 @@ class ImageProviderManager:
             "openai": OpenAIImageProvider(),
             "google": GoogleImageProvider(),
             "stability": StabilityAIProvider(),
-            "replicate": ReplicateProvider()
+            "replicate": ReplicateProvider(),
+            "volcano": VolcanoImageProvider()
         }
     
     def get_provider(self, provider_name: str) -> ImageProvider:

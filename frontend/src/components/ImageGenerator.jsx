@@ -10,7 +10,7 @@ export default function ImageGenerator() {
   const [quality, setQuality] = useState('standard')
   const [style, setStyle] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
-  const [generatedImages, setGeneratedImages] = useState([])
+  const [generatedMedia, setGeneratedMedia] = useState([])
 
   useEffect(() => {
     loadModels()
@@ -68,7 +68,7 @@ export default function ImageGenerator() {
         n: 1
       })
 
-      setGeneratedImages([...response.data.images, ...generatedImages])
+      setGeneratedMedia([...response.data.images, ...generatedMedia])
     } catch (error) {
       console.error('Image generation error:', error)
       alert('Failed to generate image: ' + (error.response?.data?.detail || error.message))
@@ -77,10 +77,11 @@ export default function ImageGenerator() {
     }
   }
 
-  const handleDownload = (imageUrl, index) => {
+  const handleDownload = (url, index, type) => {
     const link = document.createElement('a')
-    link.href = imageUrl
-    link.download = `generated-image-${index + 1}.png`
+    link.href = url
+    const ext = type === 'video' ? 'mp4' : 'png'
+    link.download = `generated-${type || 'image'}-${index + 1}.${ext}`
     link.click()
   }
 
@@ -184,35 +185,45 @@ export default function ImageGenerator() {
           ) : (
             <>
               <Wand2 size={20} />
-              Generate Image
+              {selectedModel?.type === 'video' ? 'Generate Video' : 'Generate Image'}
             </>
           )}
         </button>
       </div>
 
-      {generatedImages.length > 0 && (
+      {generatedMedia.length > 0 && (
         <div>
-          <h4 className="font-medium mb-3">Generated Images</h4>
-          <div className="grid grid-cols-2 gap-4">
-            {generatedImages.map((img, index) => (
-              <div key={index} className="border border-border rounded-lg overflow-hidden">
-                <img
-                  src={img.url}
-                  alt={img.revised_prompt || 'Generated image'}
-                  className="w-full h-auto"
-                />
+          <h4 className="font-medium mb-3">Generated Content</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {generatedMedia.map((item, index) => (
+              <div key={index} className="border border-border rounded-lg overflow-hidden bg-black/5">
+                {item.type === 'video' ? (
+                  <video 
+                    src={item.url} 
+                    controls 
+                    className="w-full h-auto aspect-video bg-black"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                ) : (
+                  <img
+                    src={item.url}
+                    alt={item.revised_prompt || 'Generated image'}
+                    className="w-full h-auto"
+                  />
+                )}
                 <div className="p-3 bg-muted/30">
-                  {img.revised_prompt && (
+                  {item.revised_prompt && (
                     <p className="text-xs text-muted-foreground mb-2">
-                      {img.revised_prompt}
+                      {item.revised_prompt}
                     </p>
                   )}
                   <button
-                    onClick={() => handleDownload(img.url, index)}
+                    onClick={() => handleDownload(item.url, index, item.type)}
                     className="flex items-center gap-2 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity"
                   >
                     <Download size={14} />
-                    Download
+                    Download {item.type === 'video' ? 'Video' : 'Image'}
                   </button>
                 </div>
               </div>
