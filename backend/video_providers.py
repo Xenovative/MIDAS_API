@@ -48,11 +48,15 @@ class VolcanoVideoProvider(VideoProvider):
             }
         }
 
+        # Official Seedance video create endpoint (per doc): /contents/generations/tasks
         endpoints = [
-            f"{self.base_url}/content-generation/tasks",      # hyphen
-            f"{self.base_url}/content_generation/tasks",      # underscore (SDK)
-            f"{self.base_url}/content-generation/video-tasks",  # possible alt path
-            f"{self.base_url}/content_generation/video-tasks",  # possible alt path underscore
+            f"{self.base_url}/contents/generations/tasks",      # doc path
+            f"{self.base_url}/content-generation/tasks",        # legacy hyphen
+            f"{self.base_url}/content_generation/tasks",        # legacy underscore
+            f"{self.base_url}/content-generation/video-tasks",  # other guesses
+            f"{self.base_url}/content_generation/video-tasks",
+            f"{self.base_url}/video-generation/tasks",
+            f"{self.base_url}/video_generation/tasks",
         ]
 
         async with httpx.AsyncClient(timeout=15.0) as client:
