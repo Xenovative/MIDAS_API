@@ -739,9 +739,10 @@ class VolcanoImageProvider(ImageProvider):
         )
         
         # Determine if it's video or image generation (after resolution)
+        actual_model_lower = actual_model.lower()
         is_video = (
-            "seedance" in actual_model.lower()
-            or "video" in actual_model.lower()
+            "seedance" in actual_model_lower
+            or "video" in actual_model_lower
             or (settings.volcano_video_endpoint and actual_model == settings.volcano_video_endpoint)
         )
         
