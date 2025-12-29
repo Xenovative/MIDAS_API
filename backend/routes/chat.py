@@ -151,6 +151,25 @@ async def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1", im
         moderation: Content moderation level (low, medium, high)
     """
     try:
+        # If caller passed a video endpoint/model, route to video manager instead of image flow
+        model_lower = model.lower() if model else ""
+        if (
+            ("seedance" in model_lower or "video" in model_lower)
+            or (os.getenv("VOLCANO_VIDEO_ENDPOINT") and model == os.getenv("VOLCANO_VIDEO_ENDPOINT"))
+        ):
+            print(f"🎬 Detected video model in image route, delegating to video manager: model={model}")
+            videos = await video_manager.generate(prompt=prompt, model=model, size=size)
+            if not videos:
+                raise ValueError("No video generated")
+            video_url = videos[0].get("url")
+            if not video_url:
+                raise ValueError("Video generated but no URL returned")
+            return {
+                "url": video_url,
+                "type": videos[0].get("type", "video"),
+                "revised_prompt": videos[0].get("revised_prompt"),
+            }
+
         print(f"🎨 Generating image with model: {model}")
         print(f"📝 Prompt: {prompt}")
         print(f"🖼️ Has input image: {bool(image)}")
