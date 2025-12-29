@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink, FileText } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { User, Bot, Volume2, VolumeX, Loader2, RotateCcw, Copy, Check, Package, ExternalLink, FileText, Brain } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -48,9 +48,32 @@ export default function ChatMessage({
   const [copied, setCopied] = useState(false)
   const [suggestions, setSuggestions] = useState([])
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState(true)
   
+  // Parse thinking content (DeepSeek R1 style <think>...</think>)
+  const { thinking, displayContent } = useMemo(() => {
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    let match;
+    let thinkingParts = [];
+    let lastIndex = 0;
+    let cleanContent = message.content;
+
+    // Extract all thinking blocks
+    const matches = [...message.content.matchAll(thinkRegex)];
+    if (matches.length > 0) {
+      thinkingParts = matches.map(m => m[1].trim());
+      // Remove think tags from the content displayed in markdown
+      cleanContent = message.content.replace(thinkRegex, '').trim();
+    }
+
+    return { 
+      thinking: thinkingParts.join('\n\n'), 
+      displayContent: cleanContent 
+    };
+  }, [message.content]);
+
   // Parse artifacts from message content
-  const { artifacts, contentWithoutArtifacts } = parseArtifacts(message.content)
+  const { artifacts, contentWithoutArtifacts } = parseArtifacts(displayContent)
   
   // Check if this is an image generation in progress
   const isGeneratingImage = !isUser && 
@@ -364,6 +387,27 @@ export default function ChatMessage({
           </div>
         )}
         
+        {/* Display thinking process if available */}
+        {thinking && (
+          <div className="mb-4 border-l-2 border-primary/30 bg-muted/50 rounded-r-lg overflow-hidden">
+            <button 
+              onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors border-b border-border/50"
+            >
+              <Brain size={14} className="text-primary/70" />
+              <span>Thinking Process</span>
+              <div className="ml-auto opacity-50 text-[10px]">
+                {isThinkingExpanded ? 'Click to collapse' : 'Click to expand'}
+              </div>
+            </button>
+            {isThinkingExpanded && (
+              <div className="p-3 text-sm italic text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                {thinking}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="markdown-content prose prose-sm max-w-none">
           <ReactMarkdown 
             remarkPlugins={[remarkGfm]}

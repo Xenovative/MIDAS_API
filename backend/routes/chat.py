@@ -766,6 +766,12 @@ async def chat(
                 request.max_tokens
             )
             response_content = response["content"]
+            
+            # If there's reasoning content (DeepSeek R1 / Volcano), wrap it in <think> tags
+            # so the frontend can format it consistently with streaming mode
+            if response.get("reasoning_content"):
+                response_content = f"<think>\n{response['reasoning_content']}\n</think>\n\n{response_content}"
+                
             agent_executions = list(realtime_execs)
             generated_images = []
         

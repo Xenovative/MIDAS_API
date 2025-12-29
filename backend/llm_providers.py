@@ -582,9 +582,7 @@ class VolcanoProvider(LLMProvider):
                                     
                                     # Support for reasoning_content (DeepSeek R1 on Ark)
                                     if "reasoning_content" in delta:
-                                        # You might want to handle this differently in the UI, 
-                                        # but for now we'll yield it or prefix it
-                                        yield delta["reasoning_content"]
+                                        yield f"<think>\n{delta['reasoning_content']}\n</think>"
                                         
                                     if "content" in delta:
                                         yield delta["content"]
@@ -843,7 +841,7 @@ class DeepSeekProvider(LLMProvider):
     
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -860,8 +858,12 @@ class DeepSeekProvider(LLMProvider):
             stream=stream
         )
         
-        return {
-            "content": response.choices[0].message.content,
+        message = response.choices[0].message
+        content = message.content
+        reasoning_content = getattr(message, 'reasoning_content', None)
+        
+        result = {
+            "content": content,
             "model": model,
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens,
@@ -869,10 +871,15 @@ class DeepSeekProvider(LLMProvider):
                 "total_tokens": response.usage.total_tokens
             }
         }
+        
+        if reasoning_content:
+            result["reasoning_content"] = reasoning_content
+            
+        return result
     
     async def chat_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         model: str,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None
@@ -889,8 +896,14 @@ class DeepSeekProvider(LLMProvider):
         )
         
         async for chunk in stream:
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            delta = chunk.choices[0].delta
+            
+            # Support for reasoning_content (DeepSeek R1)
+            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                yield f"<think>\n{delta.reasoning_content}\n</think>"
+                
+            if delta.content:
+                yield delta.content
 
 
 class LLMManager:
