@@ -758,19 +758,48 @@ class VolcanoImageProvider(ImageProvider):
 
     async def _generate_image(self, prompt: str, model: str, size: str, n: int) -> List[dict]:
         """OpenAI-compatible image generation for Seedream"""
+        # Volcano Seedream 4.5 requires at least 3,686,400 pixels (e.g. 2048x2048)
+        actual_size = size
+        is_seedream_45 = any(ver in model.lower() for ver in ["4.5", "4-5", "251128"])
+        
+        if is_seedream_45 and "x" in size:
+            try:
+                w, h = map(int, size.split("x"))
+                if w * h < 3686400:
+                    # Scale up while maintaining aspect ratio
+                    # Target 4MP (approx 2048x2048)
+                    if w == h:
+                        actual_size = "2048x2048"
+                    elif w > h:
+                        actual_size = "2560x1440"
+                    else:
+                        actual_size = "1440x2560"
+                    print(f"📐 Auto-scaling resolution for {model}: {size} -> {actual_size}")
+            except Exception:
+                pass
+
         async with httpx.AsyncClient(timeout=120.0) as client:
+            # Volcano Engine Image Generation Parameters
+            # Ref: https://www.volcengine.com/docs/6730/1289155
+            request_body = {
+                "model": model,
+                "prompt": prompt,
+                "size": actual_size,
+                "n": n,
+                "response_format": "url"
+            }
+            
+            # Additional parameters for Seedream 4.5 if needed
+            # For example, Seedream 4.5 supports quality selection
+            # if quality == "hd": ... 
+            
             response = await client.post(
                 f"{self.base_url}/images/generations",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "size": size,
-                    "n": n
-                }
+                json=request_body
             )
             
             if response.status_code != 200:
@@ -784,6 +813,15 @@ class VolcanoImageProvider(ImageProvider):
     async def _generate_video(self, prompt: str, model: str, size: str) -> List[dict]:
         """Task-based video generation for Seedance"""
         async with httpx.AsyncClient(timeout=10.0) as client:
+            # Volcano Engine Video Generation Parameters (Seedance)
+            # Ref: https://www.volcengine.com/docs/6730/1289156
+            
+            # Normalize resolution
+            resolution = size if "x" in size else "1280x720"
+            if resolution == "1024x1024":
+                # Some models prefer specific 1:1 resolutions
+                pass
+
             # 1. Create task
             response = await client.post(
                 f"{self.base_url}/content_generation/tasks",
@@ -797,7 +835,8 @@ class VolcanoImageProvider(ImageProvider):
                         "prompt": prompt
                     },
                     "parameters": {
-                        "resolution": size if "x" in size else "1280x720"
+                        "resolution": resolution,
+                        "duration": 5  # Standard duration
                     }
                 }
             )
@@ -855,8 +894,8 @@ class VolcanoImageProvider(ImageProvider):
                 "id": "seedream-4.0",
                 "name": "Seedream 4.0 (Image)",
                 "provider": "volcano",
-                "sizes": ["1024x1024", "1024x1792", "1792x1024"],
-                "qualities": ["standard"],
+                "sizes": ["1024x1024", "1024x1792", "1792x1024", "2048x2048"],
+                "qualities": ["standard", "hd"],
                 "styles": [],
                 "max_images": 1,
                 "supports_style": False,
@@ -866,7 +905,7 @@ class VolcanoImageProvider(ImageProvider):
                 "id": "seedance-1.5-pro",
                 "name": "Seedance 1.5 Pro (Video)",
                 "provider": "volcano",
-                "sizes": ["1280x720", "720x1280", "1024x1024"],
+                "sizes": ["1280x720", "720x1280", "1024x1024", "960x544", "544x960"],
                 "qualities": ["standard"],
                 "styles": [],
                 "max_images": 1,
@@ -881,8 +920,8 @@ class VolcanoImageProvider(ImageProvider):
                 "id": settings.volcano_image_endpoint,
                 "name": f"Volcano Image (Dedicated)",
                 "provider": "volcano",
-                "sizes": ["1024x1024", "1024x1792", "1792x1024"],
-                "qualities": ["standard"],
+                "sizes": ["2048x2048", "1440x2560", "2560x1440", "1024x1024"],
+                "qualities": ["standard", "hd"],
                 "styles": [],
                 "max_images": 1,
                 "supports_style": False,
