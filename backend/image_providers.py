@@ -891,6 +891,7 @@ class VolcanoImageProvider(ImageProvider):
 
     async def _generate_video(self, prompt: str, model: str, size: str) -> List[dict]:
         """Task-based video generation for Seedance"""
+        # Seedance video uses the /content-generation/tasks endpoint (note hyphen)
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Volcano Engine Video Generation Parameters (Seedance)
             # Ref: https://www.volcengine.com/docs/6730/1289156
@@ -922,7 +923,7 @@ class VolcanoImageProvider(ImageProvider):
             print(f"   Payload: {create_payload}")
             
             response = await client.post(
-                f"{self.base_url}/content_generation/tasks",
+                f"{self.base_url}/content-generation/tasks",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
@@ -946,7 +947,7 @@ class VolcanoImageProvider(ImageProvider):
             for _ in range(120):  # 120 seconds timeout
                 await asyncio.sleep(2)
                 status_response = await client.get(
-                    f"{self.base_url}/content_generation/tasks/{task_id}",
+                    f"{self.base_url}/content-generation/tasks/{task_id}",
                     headers={"Authorization": f"Bearer {self.api_key}"}
                 )
                 
