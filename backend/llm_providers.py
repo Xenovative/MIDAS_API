@@ -431,9 +431,11 @@ class VolcanoProvider(LLMProvider):
             
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
+                url = f"{self.base_url}/endpoints"
+                print(f"🔍 Fetching Volcano endpoints from: {url}")
                 # Ark V3 API usually supports /endpoints to list inference endpoints
                 response = await client.get(
-                    f"{self.base_url}/endpoints",
+                    url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json"
@@ -441,13 +443,16 @@ class VolcanoProvider(LLMProvider):
                     params={"page_num": 1, "page_size": 100}
                 )
                 
+                print(f"📊 Volcano response status: {response.status_code}")
                 if response.status_code == 200:
                     data = response.json()
                     endpoints = data.get("items", [])
+                    print(f"✅ Found {len(endpoints)} Volcano endpoints")
                     models = []
                     for ep in endpoints:
                         # Only include 'Running' endpoints
-                        if ep.get("status") == "Running":
+                        status = ep.get("status")
+                        if status == "Running":
                             models.append({
                                 "id": ep["endpoint_id"],
                                 "name": f"{ep['model_name']} ({ep['name']})",
@@ -456,6 +461,8 @@ class VolcanoProvider(LLMProvider):
                                 "supports_functions": True,
                                 "supports_vision": "vision" in ep['model_name'].lower()
                             })
+                        else:
+                            print(f"⏭️ Skipping Volcano endpoint {ep.get('endpoint_id')} (status: {status})")
                     return models
                 else:
                     print(f"⚠️ Volcano list endpoints failed ({response.status_code}): {response.text}")
@@ -482,7 +489,12 @@ class VolcanoProvider(LLMProvider):
                 print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
         
         # Fallback to default endpoint ID from settings
-        return self.endpoint_id
+        # Validate that the endpoint_id looks like a real endpoint ID (ep-...)
+        if self.endpoint_id and self.endpoint_id.startswith("ep-"):
+            return self.endpoint_id
+            
+        print(f"⚠️ No valid mapping found for Volcano model '{model}' and default endpoint_id is invalid: '{self.endpoint_id}'")
+        return model # Fallback to model name itself, which will likely fail but at least it's clear
 
     async def chat(
         self,
@@ -1070,8 +1082,8 @@ class LLMManager:
                         except:
                             pass
                     
-                    # Also add the default endpoint if not mapped
-                    if volcano_provider.endpoint_id and not any(m["id"] == volcano_provider.endpoint_id for m in volcano_models):
+                    # Also add the default endpoint if not mapped and it's a valid ID
+                    if volcano_provider.endpoint_id and volcano_provider.endpoint_id.startswith("ep-") and not any(m["id"] == volcano_provider.endpoint_id for m in volcano_models):
                         volcano_models.append({
                             "id": volcano_provider.endpoint_id,
                             "name": "豆包 (Default Endpoint)",
