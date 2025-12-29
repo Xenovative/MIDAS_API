@@ -425,22 +425,69 @@ class VolcanoProvider(LLMProvider):
         return self.api_key is not None and self.endpoint_id is not None
     
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """Return a single Smart Router entry for Volcano Engine"""
+        """Fetch all available running chat endpoints from Volcano Engine"""
         if not self.is_available():
             return []
             
-        # Volcano Engine is multi-modal and routes automatically.
-        # We only need one entry to represent the configured endpoint.
-        model_id = self.endpoint_id if (self.endpoint_id and self.endpoint_id.startswith("ep-")) else "doubao-pro"
+        models = []
         
-        return [{
-            "id": model_id,
-            "name": "豆包 (Smart Router)",
-            "provider": "volcano",
-            "context_window": 128000,
-            "supports_functions": True,
-            "supports_vision": True
-        }]
+        # 1. Add the "Smart Router" for the explicitly configured endpoint ID
+        if self.endpoint_id and self.endpoint_id.startswith("ep-"):
+            models.append({
+                "id": self.endpoint_id,
+                "name": "豆包 (Smart Router)",
+                "provider": "volcano",
+                "context_window": 128000,
+                "supports_functions": True,
+                "supports_vision": True
+            })
+            
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # 2. Fetch all endpoints from the management API
+                url = f"{self.base_url}/endpoints"
+                print(f"🔍 Fetching Volcano endpoints for discovery: {url}")
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    params={"page_num": 1, "page_size": 100}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    endpoints = data.get("items", [])
+                    
+                    for ep in endpoints:
+                        ep_id = ep.get("endpoint_id")
+                        # Skip if already added or not running
+                        if not ep_id or any(m["id"] == ep_id for m in models) or ep.get("status") != "Running":
+                            continue
+                            
+                        model_name = ep.get("model_name", "").lower()
+                        
+                        # Filter out non-chat models
+                        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
+                        if any(kw in model_name for kw in non_chat_keywords):
+                            continue
+                            
+                        models.append({
+                            "id": ep_id,
+                            "name": f"豆包 ({ep.get('model_name', ep.get('name', ep_id))})",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": True
+                        })
+                    
+                    print(f"✅ Found {len(models)} Volcano endpoints")
+                
+            return models
+        except Exception as e:
+            print(f"⚠️ Error in Volcano discovery: {e}")
+            return models if models else []
 
     def _get_endpoint_id(self, model: str) -> str:
         """Get the actual endpoint ID for a model name"""
