@@ -425,86 +425,86 @@ class VolcanoProvider(LLMProvider):
         return self.api_key is not None and self.endpoint_id is not None
     
     async def get_available_models(self) -> List[Dict[str, Any]]:
-        """Fetch available inference endpoints from Volcano Engine"""
+        """Fetch available inference endpoints from Volcano Engine
+        Volcano Engine uses smart routing, so we primarily focus on the configured endpoint
+        and a few key standard model types.
+        """
         if not self.is_available():
             return []
             
+        models = []
+        
+        # 1. Always prioritize the explicitly configured endpoint ID if available
+        if self.endpoint_id and self.endpoint_id.startswith("ep-"):
+            models.append({
+                "id": self.endpoint_id,
+                "name": "豆包 (Smart Router)",
+                "provider": "volcano",
+                "context_window": 128000,
+                "supports_functions": True,
+                "supports_vision": True # Doubao Pro endpoints are typically multimodal
+            })
+            
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                # Ark V3 is OpenAI compatible, so it should support /models
-                # But Volcengine also has a specific /endpoints for management
-                # We'll try /models first as it's the standard OpenAI discovery endpoint
-                url = f"{self.base_url}/models"
-                print(f"🔍 Fetching Volcano models from: {url}")
-                
-                response = await client.get(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
-                    }
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get("data", [])
-                    print(f"✅ Found {len(items)} Volcano models via /models")
-                    models = []
-                    for item in items:
-                        # In Ark V3, 'id' is the endpoint_id
-                        model_id = item.get("id")
-                        if not model_id:
-                            continue
-                            
-                        # Try to find a human-friendly name if available
-                        # Standard OpenAI /models response doesn't have many fields
-                        name = item.get("name") or model_id
-                        
-                        models.append({
-                            "id": model_id,
-                            "name": f"豆包 ({name})",
-                            "provider": "volcano",
-                            "context_window": 128000,
-                            "supports_functions": True,
-                            "supports_vision": "vision" in model_id.lower() or "vision" in name.lower()
-                        })
-                    return models
-                
-                # If /models fails, fall back to /endpoints (management API style)
+                # 2. Try to fetch other running endpoints but keep it lean
                 url = f"{self.base_url}/endpoints"
-                print(f"🔍 Falling back to Volcano endpoints from: {url}")
+                print(f"🔍 Fetching Volcano endpoints for discovery: {url}")
                 response = await client.get(
                     url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json"
                     },
-                    params={"page_num": 1, "page_size": 100}
+                    params={"page_num": 1, "page_size": 20} # Smaller page size
                 )
                 
                 if response.status_code == 200:
                     data = response.json()
                     endpoints = data.get("items", [])
-                    print(f"✅ Found {len(endpoints)} Volcano endpoints via /endpoints")
-                    models = []
+                    
                     for ep in endpoints:
-                        status = ep.get("status")
-                        if status == "Running":
-                            models.append({
-                                "id": ep["endpoint_id"],
-                                "name": f"{ep['model_name']} ({ep['name']})",
-                                "provider": "volcano",
-                                "context_window": 128000,
-                                "supports_functions": True,
-                                "supports_vision": "vision" in ep['model_name'].lower()
-                            })
-                    return models
-                else:
-                    print(f"⚠️ Volcano discovery failed (models: {response.status_code})")
-                    return []
+                        ep_id = ep.get("endpoint_id")
+                        # Skip if already added as default or is not running
+                        if not ep_id or any(m["id"] == ep_id for m in models) or ep.get("status") != "Running":
+                            continue
+                            
+                        model_name = ep.get("model_name", "").lower()
+                        
+                        # Filter out non-chat models (video/audio)
+                        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
+                        if any(kw in model_name for kw in non_chat_keywords):
+                            continue
+                            
+                        models.append({
+                            "id": ep_id,
+                            "name": f"豆包 ({ep.get('model_name', ep.get('name', ep_id))})",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": True # Volcano endpoints are generally multimodal now
+                        })
+                    
+                    print(f"✅ Found {len(models)} Volcano endpoints")
+                
+                # 3. Add standard friendly IDs if not already present
+                standard_ids = ["doubao-pro", "doubao-lite"]
+                for sid in standard_ids:
+                    if not any(m["id"] == sid for m in models):
+                        models.append({
+                            "id": sid,
+                            "name": f"豆包 ({sid.capitalize()})",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": True
+                        })
+                        
+            return models
         except Exception as e:
-            print(f"⚠️ Error fetching Volcano models: {e}")
-            return []
+            print(f"⚠️ Error in Volcano discovery: {e}")
+            # Ensure at least the configured endpoint is returned on error if it's valid
+            return models if models else []
 
     def _get_endpoint_id(self, model: str) -> str:
         """Get the actual endpoint ID for a model name"""
@@ -542,6 +542,11 @@ class VolcanoProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Volcano Engine API key or endpoint ID not configured")
         
+        # Check if user is trying to use a non-chat model
+        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
+        if any(kw in model.lower() for kw in non_chat_keywords):
+            raise ValueError(f"Model '{model}' is a non-chat model and cannot be used with the chat completion endpoint. Please use a Doubao chat model.")
+
         endpoint_id = self._get_endpoint_id(model)
         print(f"🌋 Volcano Chat: model={model}, endpoint={endpoint_id}")
         
@@ -594,6 +599,12 @@ class VolcanoProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Volcano Engine API key or endpoint ID not configured")
         
+        # Check if user is trying to use a non-chat model
+        non_chat_keywords = ["seedance", "seedream", "video-generation", "t2v", "i2v", "speech", "voice", "audio"]
+        if any(kw in model.lower() for kw in non_chat_keywords):
+            yield f"Error: Model '{model}' is a non-chat model (video/audio/image) and is not supported for chat."
+            return
+
         endpoint_id = self._get_endpoint_id(model)
         print(f"🌋 Volcano Stream: model={model}, endpoint={endpoint_id}")
         
