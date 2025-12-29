@@ -723,7 +723,12 @@ class VolcanoImageProvider(ImageProvider):
             raise ValueError("Volcano API key not configured")
             
         requested_model = model or ""
-        is_video_request = "seedance" in requested_model.lower() or "video" in requested_model.lower()
+        requested_model_lower = requested_model.lower()
+        is_video_request = (
+            "seedance" in requested_model_lower
+            or "video" in requested_model_lower
+            or (settings.volcano_video_endpoint and requested_model == settings.volcano_video_endpoint)
+        )
         is_image_request = not is_video_request
         
         # Resolve endpoint with strong bias toward dedicated image/video endpoints
@@ -734,7 +739,11 @@ class VolcanoImageProvider(ImageProvider):
         )
         
         # Determine if it's video or image generation (after resolution)
-        is_video = "seedance" in actual_model.lower() or "video" in actual_model.lower()
+        is_video = (
+            "seedance" in actual_model.lower()
+            or "video" in actual_model.lower()
+            or (settings.volcano_video_endpoint and actual_model == settings.volcano_video_endpoint)
+        )
         
         if is_video:
             return await self._generate_video(prompt, actual_model, size)
@@ -752,15 +761,15 @@ class VolcanoImageProvider(ImageProvider):
 
     def _get_endpoint_id(self, model: str, is_video: bool, is_image: bool) -> str:
         """Get the actual endpoint ID for a model name"""
-        # 1) If model already looks like an endpoint ID, keep exactly what the user sent
-        if model.startswith("ep-"):
-            return model
-        
-        # 2) If caller supplied dedicated endpoints, prefer them
+        # 1) If caller supplied dedicated endpoints, force them (preferred explicit config)
         if is_video and settings.volcano_video_endpoint:
             return settings.volcano_video_endpoint
         if is_image and settings.volcano_image_endpoint:
             return settings.volcano_image_endpoint
+        
+        # 2) If model already looks like an endpoint ID, keep exactly what the user sent
+        if model.startswith("ep-"):
+            return model
         
         # 3) Check environment variables for mapping
         import os
