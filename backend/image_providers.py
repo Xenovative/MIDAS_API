@@ -901,23 +901,28 @@ class VolcanoImageProvider(ImageProvider):
                 # Some models prefer specific 1:1 resolutions
                 pass
 
-            # 1. Create task
+            # 1. Create task (aligning with official Seedance example: text content list)
+            create_payload = {
+                "model": model,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    }
+                ],
+                "parameters": {
+                    "resolution": resolution,
+                    "duration": 5  # Standard duration; adjust as needed
+                }
+            }
+            
             response = await client.post(
                 f"{self.base_url}/content_generation/tasks",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
                 },
-                json={
-                    "model": model,
-                    "input": {
-                        "prompt": prompt
-                    },
-                    "parameters": {
-                        "resolution": resolution,
-                        "duration": 5  # Standard duration
-                    }
-                }
+                json=create_payload
             )
             
             if response.status_code != 200:
