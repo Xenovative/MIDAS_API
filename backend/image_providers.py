@@ -1,6 +1,7 @@
 """Image generation providers"""
 from abc import ABC, abstractmethod
 from typing import Optional, List
+import asyncio
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 import httpx
@@ -721,11 +722,19 @@ class VolcanoImageProvider(ImageProvider):
         if not self.api_key:
             raise ValueError("Volcano API key not configured")
             
-        # Get actual endpoint ID if needed
-        actual_model = self._get_endpoint_id(model)
+        requested_model = model or ""
+        is_video_request = "seedance" in requested_model.lower() or "video" in requested_model.lower()
+        is_image_request = not is_video_request
         
-        # Determine if it's video or image generation
-        is_video = "seedance" in model.lower() or "video" in model.lower() or "seedance" in actual_model.lower()
+        # Resolve endpoint with strong bias toward dedicated image/video endpoints
+        actual_model = self._get_endpoint_id(
+            model=requested_model,
+            is_video=is_video_request,
+            is_image=is_image_request
+        )
+        
+        # Determine if it's video or image generation (after resolution)
+        is_video = "seedance" in actual_model.lower() or "video" in actual_model.lower()
         
         if is_video:
             return await self._generate_video(prompt, actual_model, size)
@@ -741,20 +750,19 @@ class VolcanoImageProvider(ImageProvider):
                 style=style
             )
 
-    def _get_endpoint_id(self, model: str) -> str:
+    def _get_endpoint_id(self, model: str, is_video: bool, is_image: bool) -> str:
         """Get the actual endpoint ID for a model name"""
-        # If model is already an endpoint ID (starts with ep-), use it
+        # 1) If model already looks like an endpoint ID, keep exactly what the user sent
         if model.startswith("ep-"):
             return model
         
-        # 1. Check specialized settings from config
-        is_video = "seedance" in model.lower() or "video" in model.lower()
+        # 2) If caller supplied dedicated endpoints, prefer them
         if is_video and settings.volcano_video_endpoint:
             return settings.volcano_video_endpoint
-        elif not is_video and settings.volcano_image_endpoint:
+        if is_image and settings.volcano_image_endpoint:
             return settings.volcano_image_endpoint
-            
-        # 2. Check environment variables for mapping
+        
+        # 3) Check environment variables for mapping
         import os
         model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
         if model_map_str:
@@ -763,9 +771,9 @@ class VolcanoImageProvider(ImageProvider):
                 if model in model_map:
                     return model_map[model]
             except Exception as e:
-                print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
+                print(f" Error parsing VOLCANO_MODEL_MAP: {e}")
         
-        # Fallback to the model name itself
+        # 4) Fallback to the model name itself
         return model
 
     async def _generate_image(
