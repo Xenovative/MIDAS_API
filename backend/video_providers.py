@@ -49,8 +49,10 @@ class VolcanoVideoProvider(VideoProvider):
         }
 
         endpoints = [
-            f"{self.base_url}/content-generation/tasks",   # hyphen
-            f"{self.base_url}/content_generation/tasks",   # underscore (SDK)
+            f"{self.base_url}/content-generation/tasks",      # hyphen
+            f"{self.base_url}/content_generation/tasks",      # underscore (SDK)
+            f"{self.base_url}/content-generation/video-tasks",  # possible alt path
+            f"{self.base_url}/content_generation/video-tasks",  # possible alt path underscore
         ]
 
         async with httpx.AsyncClient(timeout=15.0) as client:
