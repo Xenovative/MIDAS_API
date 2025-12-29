@@ -153,7 +153,18 @@ async def generate_video(req: VideoGenerateRequest):
     }
 
 
-async def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1", image: Optional[str] = None, reference_images: Optional[List[str]] = None, size: str = "1024x1024", image_fidelity: str = "high", moderation: str = "low") -> dict:
+async def generate_image_from_prompt(
+    prompt: str,
+    model: str = "gpt-image-1",
+    image: Optional[str] = None,
+    reference_images: Optional[List[str]] = None,
+    size: str = "1024x1024",
+    image_fidelity: str = "high",
+    moderation: str = "low",
+    image_ratio: Optional[str] = None,
+    image_quality: Optional[str] = None,
+    image_style: Optional[str] = None,
+) -> dict:
     """Generate image using configured image provider
     
     Args:
@@ -247,12 +258,14 @@ async def generate_image_from_prompt(prompt: str, model: str = "gpt-image-1", im
             prompt=prompt,
             model=model,
             size=size,
-            quality=quality,
+            quality=image_quality or quality,
+            style=image_style,
             n=1,
             image=image,
             reference_images=reference_images,
             image_fidelity=image_fidelity,
-            moderation=moderation
+            moderation=moderation,
+            ratio=image_ratio,
         )
         
         if images:

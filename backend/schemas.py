@@ -62,6 +62,9 @@ class ChatRequest(BaseModel):
     bot_name: Optional[str] = None
     image_model: Optional[str] = "gpt-image-1"
     image_size: Optional[str] = "1024x1024"  # Image generation size
+    image_ratio: Optional[str] = None  # Aspect ratio, e.g., 16:9
+    image_quality: Optional[str] = "standard"  # standard, high, hd per provider
+    image_style: Optional[str] = None  # style keyword per provider
     image_fidelity: Optional[str] = "high"  # Image fidelity: low, medium, high
     moderation: Optional[str] = "low"  # Content moderation: low, medium, high
 

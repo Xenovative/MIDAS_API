@@ -717,7 +717,8 @@ class VolcanoImageProvider(ImageProvider):
         image: Optional[str] = None,
         reference_images: Optional[List[str]] = None,
         image_fidelity: str = "high",
-        moderation: str = "low"
+        moderation: str = "low",
+        ratio: Optional[str] = None,
     ) -> List[dict]:
         if not self.api_key:
             raise ValueError("Volcano API key not configured")
@@ -757,7 +758,8 @@ class VolcanoImageProvider(ImageProvider):
                 image=image,
                 reference_images=reference_images,
                 quality=quality,
-                style=style
+                style=style,
+                ratio=ratio,
             )
 
     def _get_endpoint_id(self, model: str, is_video: bool, is_image: bool) -> str:
@@ -795,7 +797,8 @@ class VolcanoImageProvider(ImageProvider):
         image: Optional[str] = None,
         reference_images: Optional[List[str]] = None,
         quality: str = "standard",
-        style: Optional[str] = None
+        style: Optional[str] = None,
+        ratio: Optional[str] = None,
     ) -> List[dict]:
         """OpenAI-compatible image generation for Seedream"""
         # Volcano Seedream (especially 4.5/Ark) often requires at least 3,686,400 pixels (e.g. 2048x2048)
@@ -811,6 +814,14 @@ class VolcanoImageProvider(ImageProvider):
         print(f"🔍 Ref Images: {len(reference_images) if reference_images else 0}")
         
         actual_size = size
+        if ratio and ":" in ratio:
+            try:
+                w, h = map(int, ratio.split(":"))
+                if w > 0 and h > 0:
+                    ratio_param = f"{w}:{h}"
+            except Exception as e:
+                print(f"⚠️ Provided ratio '{ratio}' invalid: {e}")
+
         if "x" in str(size):
             try:
                 parts = str(size).split("x")

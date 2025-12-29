@@ -39,6 +39,7 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
   const [selectedImageModel, setSelectedImageModel] = useState(null)
   const [showMediaModal, setShowMediaModal] = useState(false)
   // Media parameter states
+  const [imageRatioOverride, setImageRatioOverride] = useState(defaultImageSize ? defaultImageSize.replace('x', ':') : '')
   const [imageSizeOverride, setImageSizeOverride] = useState(defaultImageSize || '')
   const [imageQualityOverride, setImageQualityOverride] = useState(defaultImageQuality || '')
   const [imageStyleOverride, setImageStyleOverride] = useState(defaultImageStyle || '')
@@ -79,6 +80,7 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
   // Sync defaults when model changes
   useEffect(() => {
     setImageSizeOverride(defaultImageSize || '')
+    setImageRatioOverride(defaultImageSize ? defaultImageSize.replace('x', ':') : '')
     setImageQualityOverride(defaultImageQuality || '')
     setImageStyleOverride(defaultImageStyle || '')
     setVideoDuration(defaultVideoDuration || 5)
@@ -160,7 +162,8 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
         mediaOptions.image = {
           size: imageSizeOverride || defaultImageSize || selectedModelMeta?.sizes?.[0] || '1024x1024',
           quality: imageQualityOverride || defaultImageQuality || selectedModelMeta?.qualities?.[0] || 'standard',
-          style: imageStyleOverride || defaultImageStyle || ''
+          style: imageStyleOverride || defaultImageStyle || '',
+          ratio: imageRatioOverride || undefined
         }
       }
 
@@ -181,6 +184,7 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
       // Reset to defaults after send
       if (isImageModel) {
         setImageSizeOverride(defaultImageSize || '')
+        setImageRatioOverride(defaultImageSize ? defaultImageSize.replace('x', ':') : '')
         setImageQualityOverride(defaultImageQuality || '')
         setImageStyleOverride(defaultImageStyle || '')
       }
@@ -412,6 +416,16 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Ratio</label>
+                  <input
+                    type="text"
+                    placeholder="16:9, 1:1, 3:4..."
+                    value={imageRatioOverride}
+                    onChange={(e) => setImageRatioOverride(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">Quality</label>

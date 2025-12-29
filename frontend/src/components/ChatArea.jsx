@@ -281,6 +281,8 @@ export default function ChatArea() {
         use_deep_research: useDeepResearch,
         image_model: imageModel,
         image_size: mediaOptions.image?.size || imageSize,
+        image_ratio: mediaOptions.image?.ratio,
+        image_style: mediaOptions.image?.style || undefined,
       }
       
       console.log('💬 Sending chat request:')
@@ -320,6 +322,7 @@ export default function ChatArea() {
       if (mediaOptions.image) {
         if (mediaOptions.image.quality) requestData.image_quality = mediaOptions.image.quality
         if (mediaOptions.image.style) requestData.image_style = mediaOptions.image.style
+        if (mediaOptions.image.ratio) requestData.image_ratio = mediaOptions.image.ratio
       }
       if (mediaOptions.video) {
         if (mediaOptions.video.duration) requestData.video_duration = mediaOptions.video.duration
