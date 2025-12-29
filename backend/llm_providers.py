@@ -424,6 +424,66 @@ class VolcanoProvider(LLMProvider):
     def is_available(self) -> bool:
         return self.api_key is not None and self.endpoint_id is not None
     
+    async def get_available_models(self) -> List[Dict[str, Any]]:
+        """Fetch available inference endpoints from Volcano Engine"""
+        if not self.is_available():
+            return []
+            
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Ark V3 API usually supports /endpoints to list inference endpoints
+                response = await client.get(
+                    f"{self.base_url}/endpoints",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    params={"page_num": 1, "page_size": 100}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    endpoints = data.get("items", [])
+                    models = []
+                    for ep in endpoints:
+                        # Only include 'Running' endpoints
+                        if ep.get("status") == "Running":
+                            models.append({
+                                "id": ep["endpoint_id"],
+                                "name": f"{ep['model_name']} ({ep['name']})",
+                                "provider": "volcano",
+                                "context_window": 128000, # Default for Doubao
+                                "supports_functions": True,
+                                "supports_vision": "vision" in ep['model_name'].lower()
+                            })
+                    return models
+                else:
+                    print(f"⚠️ Volcano list endpoints failed ({response.status_code}): {response.text}")
+                    return []
+        except Exception as e:
+            print(f"⚠️ Error fetching Volcano models: {e}")
+            return []
+
+    def _get_endpoint_id(self, model: str) -> str:
+        """Get the actual endpoint ID for a model name"""
+        # If model is already an endpoint ID (starts with ep-), use it
+        if model.startswith("ep-"):
+            return model
+        
+        # Check environment variables for mapping: VOLCANO_MODEL_MAP="doubao-pro:ep-xxx,doubao-lite:ep-yyy"
+        import os
+        model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
+        if model_map_str:
+            try:
+                model_map = dict(item.split(":") for item in model_map_str.split(",") if ":" in item)
+                if model in model_map:
+                    return model_map[model]
+            except Exception as e:
+                print(f"⚠️ Error parsing VOLCANO_MODEL_MAP: {e}")
+        
+        # Fallback to default endpoint ID from settings
+        return self.endpoint_id
+
     async def chat(
         self,
         messages: List[Dict[str, str]],
@@ -435,6 +495,9 @@ class VolcanoProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Volcano Engine API key or endpoint ID not configured")
         
+        endpoint_id = self._get_endpoint_id(model)
+        print(f"🌋 Volcano Chat: model={model}, endpoint={endpoint_id}")
+        
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
@@ -443,13 +506,18 @@ class VolcanoProvider(LLMProvider):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": self.endpoint_id,
+                    "model": endpoint_id,
                     "messages": messages,
                     "temperature": temperature,
                     "max_tokens": max_tokens or 4096
                 }
             )
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"❌ Volcano API Error ({response.status_code}): {error_text}")
+                raise ValueError(f"Volcano API Error: {error_text}")
+                
             data = response.json()
             
             return {
@@ -468,35 +536,52 @@ class VolcanoProvider(LLMProvider):
         if not self.is_available():
             raise ValueError("Volcano Engine API key or endpoint ID not configured")
         
+        endpoint_id = self._get_endpoint_id(model)
+        print(f"🌋 Volcano Stream: model={model}, endpoint={endpoint_id}")
+        
         async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": self.endpoint_id,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens or 4096,
-                    "stream": True
-                }
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        line = line[6:]
-                        if line.strip() == "[DONE]":
-                            break
-                        try:
-                            data = json.loads(line)
-                            if "choices" in data and len(data["choices"]) > 0:
-                                delta = data["choices"][0].get("delta", {})
-                                if "content" in delta:
-                                    yield delta["content"]
-                        except json.JSONDecodeError:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": endpoint_id,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens or 4096,
+                        "stream": True
+                    }
+                ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        print(f"❌ Volcano Stream Error ({response.status_code}): {error_text.decode()}")
+                        yield f"Error from Volcano Engine ({response.status_code}): {error_text.decode()}"
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line.strip():
                             continue
+                            
+                        if line.startswith("data: "):
+                            content = line[6:].strip()
+                            if content == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(content)
+                                if "choices" in data and len(data["choices"]) > 0:
+                                    delta = data["choices"][0].get("delta", {})
+                                    if "content" in delta:
+                                        yield delta["content"]
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️ Volcano JSON parse error: {e}, line: {line}")
+                                continue
+            except Exception as e:
+                print(f"💥 Volcano stream exception: {e}")
+                yield f"Stream connection error: {str(e)}"
 
 
 class GoogleProvider(LLMProvider):
@@ -953,15 +1038,64 @@ class LLMManager:
         # Volcano Engine (火山引擎)
         volcano_provider = self.providers["volcano"]
         if volcano_provider.is_available():
-            providers_status.append({
-                "provider": "volcano",
-                "available": True,
-                "models": [
-                    {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
-                    {"id": "doubao-lite", "name": "豆包 Lite", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
-                    {"id": "doubao-vision", "name": "豆包 Vision", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": True}
-                ]
-            })
+            try:
+                # Try dynamic detection first
+                volcano_models = await volcano_provider.get_available_models()
+                
+                # If dynamic detection failed or returned nothing, use fallback
+                if not volcano_models:
+                    volcano_models = [
+                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
+                        {"id": "doubao-lite", "name": "豆包 Lite", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False},
+                        {"id": "doubao-vision", "name": "豆包 Vision", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": True}
+                    ]
+                    
+                    # Add endpoint IDs if they are configured in environment
+                    import os
+                    model_map_str = os.getenv("VOLCANO_MODEL_MAP", "")
+                    if model_map_str:
+                        try:
+                            for item in model_map_str.split(","):
+                                if ":" in item:
+                                    model_id, endpoint_id = item.split(":", 1)
+                                    if not any(m["id"] == model_id for m in volcano_models):
+                                        volcano_models.append({
+                                            "id": model_id,
+                                            "name": f"豆包 ({model_id})",
+                                            "provider": "volcano",
+                                            "context_window": 128000,
+                                            "supports_functions": True,
+                                            "supports_vision": False
+                                        })
+                        except:
+                            pass
+                    
+                    # Also add the default endpoint if not mapped
+                    if volcano_provider.endpoint_id and not any(m["id"] == volcano_provider.endpoint_id for m in volcano_models):
+                        volcano_models.append({
+                            "id": volcano_provider.endpoint_id,
+                            "name": "豆包 (Default Endpoint)",
+                            "provider": "volcano",
+                            "context_window": 128000,
+                            "supports_functions": True,
+                            "supports_vision": False
+                        })
+                
+                providers_status.append({
+                    "provider": "volcano",
+                    "available": True,
+                    "models": volcano_models
+                })
+            except Exception as e:
+                print(f"⚠️ Error in Volcano dynamic model detection: {e}")
+                # Fallback to minimal list on error
+                providers_status.append({
+                    "provider": "volcano",
+                    "available": True,
+                    "models": [
+                        {"id": "doubao-pro", "name": "豆包 Pro", "provider": "volcano", "context_window": 128000, "supports_functions": True, "supports_vision": False}
+                    ]
+                })
         
         # Ollama - Fetch from local API
         ollama_provider = self.providers["ollama"]
