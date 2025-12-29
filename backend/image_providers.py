@@ -12,6 +12,8 @@ from google import genai
 from google.genai import types
 
 
+print("📍 image_providers.py: File loaded")
+
 class ImageProvider(ABC):
     """Base class for image generation providers"""
     
@@ -758,40 +760,58 @@ class VolcanoImageProvider(ImageProvider):
 
     async def _generate_image(self, prompt: str, model: str, size: str, n: int) -> List[dict]:
         """OpenAI-compatible image generation for Seedream"""
-        # Volcano Seedream 4.5 requires at least 3,686,400 pixels (e.g. 2048x2048)
-        actual_size = size
-        is_seedream_45 = any(ver in model.lower() for ver in ["4.5", "4-5", "251128"])
+        # Volcano Seedream (especially 4.5/Ark) often requires at least 3,686,400 pixels (e.g. 2048x2048)
+        # We enforce this minimum for ALL Volcano generations to prevent InvalidParameter errors
         
-        if is_seedream_45 and "x" in size:
+        # EXTREMELY LOUD LOGGING - if you don't see this in logs, your container is not updated!
+        print("\n" + "🔥"*20)
+        print(f"🌋 VOLCANO IMAGE GENERATION ATTEMPT")
+        print(f"🔍 Model: {model}")
+        print(f"🔍 Original Size: {size}")
+        print(f"🔍 N: {n}")
+        
+        actual_size = size
+        if "x" in str(size):
             try:
-                w, h = map(int, size.split("x"))
-                if w * h < 3686400:
-                    # Scale up while maintaining aspect ratio
-                    # Target 4MP (approx 2048x2048)
-                    if w == h:
+                parts = str(size).split("x")
+                w, h = int(parts[0]), int(parts[1])
+                pixel_count = w * h
+                if pixel_count < 3686400:
+                    # Scale up while maintaining aspect ratio to meet the 3.68MP minimum
+                    if abs(w - h) < 100: # Square-ish
                         actual_size = "2048x2048"
-                    elif w > h:
+                    elif w > h: # Landscape
                         actual_size = "2560x1440"
-                    else:
+                    else: # Portrait
                         actual_size = "1440x2560"
-                    print(f"📐 Auto-scaling resolution for {model}: {size} -> {actual_size}")
-            except Exception:
-                pass
+                    print(f"🚨🚨 AUTO-RESIZING: {size} ({pixel_count} px) -> {actual_size} ({2048*2048} px) 🚨🚨")
+                else:
+                    print(f"✅ Size {size} ({pixel_count} px) meets minimum requirements")
+            except Exception as e:
+                print(f"⚠️ Resolution calculation error: {e}, falling back to 2048x2048")
+                actual_size = "2048x2048"
+        else:
+            print(f"⚠️ Unknown size format '{size}', forcing 2048x2048")
+            actual_size = "2048x2048"
+
+        # Force n=1 for high-res models if needed, as many only support single image generation
+        actual_n = n
+        if actual_size in ["2048x2048", "2560x1440", "1440x2560"] and n > 1:
+            print(f"⚠️ Forcing n=1 for high-resolution generation")
+            actual_n = 1
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            # Volcano Engine Image Generation Parameters
-            # Ref: https://www.volcengine.com/docs/6730/1289155
             request_body = {
                 "model": model,
                 "prompt": prompt,
                 "size": actual_size,
-                "n": n,
+                "n": actual_n,
                 "response_format": "url"
             }
             
-            # Additional parameters for Seedream 4.5 if needed
-            # For example, Seedream 4.5 supports quality selection
-            # if quality == "hd": ... 
+            print(f"🚀 SENDING REQUEST TO: {self.base_url}/images/generations")
+            print(f"📦 REQUEST BODY: {json.dumps(request_body, indent=2)}")
+            print("🔥"*20 + "\n")
             
             response = await client.post(
                 f"{self.base_url}/images/generations",
@@ -983,6 +1003,7 @@ class ImageProviderManager:
         moderation: str = "low"
     ) -> List[dict]:
         """Generate images using the specified model"""
+        print(f"DEBUG: ImageProviderManager.generate(model={model}, size={size})")
         # 1. First check for explicit model ID matches
         for provider_name, provider in self.providers.items():
             models = provider.get_available_models()

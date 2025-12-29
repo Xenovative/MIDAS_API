@@ -15,6 +15,9 @@ services:
       - backend_data:/data
       - backend_uploads:/app/backend/static/uploads
       - ./.env:/app/.env
+      - ./backend:/app/backend
+      - ./init_db.py:/app/init_db.py
+      - ./create_admin.py:/app/create_admin.py
     network_mode: host
     depends_on: []
 
