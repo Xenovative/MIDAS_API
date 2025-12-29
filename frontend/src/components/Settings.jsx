@@ -42,7 +42,6 @@ export default function Settings({ isOpen, onClose }) {
     google: '',
     openrouter: '',
     volcano: '',
-    volcanoEndpoint: '',
     deepseek: '',
     ollama: 'http://localhost:11434'
   })
@@ -110,7 +109,6 @@ export default function Settings({ isOpen, onClose }) {
       if (apiKeys.google) keysToUpdate.google_api_key = apiKeys.google
       if (apiKeys.openrouter) keysToUpdate.openrouter_api_key = apiKeys.openrouter
       if (apiKeys.volcano) keysToUpdate.volcano_api_key = apiKeys.volcano
-      if (apiKeys.volcanoEndpoint) keysToUpdate.volcano_endpoint_id = apiKeys.volcanoEndpoint
       if (apiKeys.deepseek) keysToUpdate.deepseek_api_key = apiKeys.deepseek
       if (apiKeys.ollama) keysToUpdate.ollama_base_url = apiKeys.ollama
 
@@ -124,7 +122,6 @@ export default function Settings({ isOpen, onClose }) {
         google: '',
         openrouter: '',
         volcano: '',
-        volcanoEndpoint: '',
         deepseek: '',
         ollama: 'http://localhost:11434'
       })
@@ -625,13 +622,6 @@ export default function Settings({ isOpen, onClose }) {
                         </button>
                       </div>
                     </div>
-                    <input
-                      type="text"
-                      value={apiKeys.volcanoEndpoint}
-                      onChange={(e) => setApiKeys({...apiKeys, volcanoEndpoint: e.target.value})}
-                      placeholder="Endpoint ID (e.g., ep-xxxxx)"
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm"
-                    />
                   </div>
                 </div>
 
