@@ -891,7 +891,6 @@ class VolcanoImageProvider(ImageProvider):
 
     async def _generate_video(self, prompt: str, model: str, size: str) -> List[dict]:
         """Task-based video generation for Seedance"""
-        # Seedance video uses the /content-generation/tasks endpoint (note hyphen)
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Volcano Engine Video Generation Parameters (Seedance)
             # Ref: https://www.volcengine.com/docs/6730/1289156
@@ -917,25 +916,36 @@ class VolcanoImageProvider(ImageProvider):
                 }
             }
             
-            print("🎞️ VOLCANO VIDEO CREATE")
-            print(f"   URL: {self.base_url}/content_generation/tasks")
-            print(f"   Model: {model}")
-            print(f"   Payload: {create_payload}")
-            
-            response = await client.post(
-                f"{self.base_url}/content-generation/tasks",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json=create_payload
-            )
-            
-            if response.status_code != 200:
-                error_text = response.text
-                print(f"❌ Volcano Video Task Creation Error ({response.status_code}): {error_text}")
-                raise ValueError(f"Volcano Video Error: {error_text or response.reason_phrase}")
+            endpoints = [
+                f"{self.base_url}/content-generation/tasks",   # hyphen style
+                f"{self.base_url}/content_generation/tasks",   # underscore style (SDK style)
+            ]
+            response = None
+            last_error = ""
+            for idx, endpoint in enumerate(endpoints):
+                print("🎞️ VOLCANO VIDEO CREATE")
+                print(f"   Attempt {idx+1}/{len(endpoints)} URL: {endpoint}")
+                print(f"   Model: {model}")
+                print(f"   Payload: {create_payload}")
                 
+                response = await client.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=create_payload
+                )
+                
+                if response.status_code == 200:
+                    break
+                
+                last_error = response.text or response.reason_phrase
+                print(f"⚠️ Video create failed ({response.status_code}): {last_error}")
+            
+            if response is None or response.status_code != 200:
+                raise ValueError(f"Volcano Video Error: {last_error or 'Video create failed'}")
+            
             task_data = response.json()
             task_id = task_data.get("id")
             
@@ -947,12 +957,18 @@ class VolcanoImageProvider(ImageProvider):
             for _ in range(120):  # 120 seconds timeout
                 await asyncio.sleep(2)
                 status_response = await client.get(
-                    f"{self.base_url}/content-generation/tasks/{task_id}",
+                    f"{endpoints[0]}/{task_id}",
                     headers={"Authorization": f"Bearer {self.api_key}"}
                 )
                 
                 if status_response.status_code != 200:
-                    continue
+                    # try underscore polling once if hyphen failed
+                    status_response = await client.get(
+                        f"{endpoints[1]}/{task_id}",
+                        headers={"Authorization": f"Bearer {self.api_key}"}
+                    )
+                    if status_response.status_code != 200:
+                        continue
                     
                 status_data = status_response.json()
                 status = status_data.get("status")

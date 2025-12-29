@@ -11,6 +11,7 @@ from backend.vector_store import vector_store
 from backend.reading_flow_rag import reading_flow_rag
 from backend.deep_research_rag import hybrid_rag
 from backend.image_providers import image_manager
+from backend.video_providers import video_manager
 from backend.llm_providers import llm_manager
 from backend.agent_tools import agent_tool_manager
 from datetime import datetime
@@ -117,12 +118,10 @@ async def generate_video(req: VideoGenerateRequest):
     size = req.size or "1280x720"
 
     print(f"🎬 Video generate requested: model={model}, size={size}")
-    videos = await image_manager.generate(
+    videos = await video_manager.generate(
         prompt=prompt,
         model=model,
         size=size,
-        quality="standard",
-        n=1,
     )
 
     if not videos:
