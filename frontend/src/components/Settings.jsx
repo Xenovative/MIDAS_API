@@ -25,7 +25,19 @@ export default function Settings({ isOpen, onClose }) {
     conversations,
     setConversations,
     setCurrentConversation,
-    user
+    user,
+    imageSize,
+    imageQuality,
+    imageStyle,
+    videoDuration,
+    videoRatio,
+    videoWatermark,
+    videoCameraFixed,
+    videoAudio,
+    setImageSize,
+    setImageQuality,
+    setImageStyle,
+    setVideoDefaults
   } = useStore()
   
   const isAdmin = user?.role === 'admin'
@@ -428,7 +440,96 @@ export default function Settings({ isOpen, onClose }) {
         )
 
       case 'generation':
-        return <ImageGenerator />
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold mb-2">Media Defaults</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Configure default image and video settings used by the chat UI when a media model is selected.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 border border-border rounded-lg">
+                  <h4 className="font-medium mb-3">Image defaults</h4>
+                  <label className="block text-sm font-medium mb-1">Size</label>
+                  <input
+                    type="text"
+                    value={imageSize}
+                    onChange={(e) => setImageSize(e.target.value)}
+                    placeholder="e.g. 1024x1024"
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm mb-3"
+                  />
+                  <label className="block text-sm font-medium mb-1">Quality</label>
+                  <input
+                    type="text"
+                    value={imageQuality}
+                    onChange={(e) => setImageQuality(e.target.value)}
+                    placeholder="standard, high, hd..."
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm mb-3"
+                  />
+                  <label className="block text-sm font-medium mb-1">Style (optional)</label>
+                  <input
+                    type="text"
+                    value={imageStyle}
+                    onChange={(e) => setImageStyle(e.target.value)}
+                    placeholder="3d, anime, photorealistic..."
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm"
+                  />
+                </div>
+
+                <div className="p-4 border border-border rounded-lg">
+                  <h4 className="font-medium mb-3">Video defaults</h4>
+                  <label className="block text-sm font-medium mb-1">Duration (seconds)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={videoDuration}
+                    onChange={(e) => setVideoDefaults({ videoDuration: Number(e.target.value) || 5 })}
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm mb-3"
+                  />
+                  <label className="block text-sm font-medium mb-1">Ratio</label>
+                  <input
+                    type="text"
+                    value={videoRatio}
+                    onChange={(e) => setVideoDefaults({ videoRatio: e.target.value })}
+                    placeholder="16:9, 9:16..."
+                    className="w-full px-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring text-sm mb-3"
+                  />
+                  <div className="flex items-center gap-4 mb-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={videoWatermark}
+                        onChange={(e) => setVideoDefaults({ videoWatermark: e.target.checked })}
+                      />
+                      Watermark
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={videoCameraFixed}
+                        onChange={(e) => setVideoDefaults({ videoCameraFixed: e.target.checked })}
+                      />
+                      Camera fixed
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={videoAudio}
+                        onChange={(e) => setVideoDefaults({ videoAudio: e.target.checked })}
+                      />
+                      Audio
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <ImageGenerator />
+            </div>
+          </div>
+        )
 
       case 'users':
         return <UserManagement />

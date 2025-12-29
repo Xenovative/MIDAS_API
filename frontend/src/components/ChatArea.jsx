@@ -230,7 +230,7 @@ export default function ChatArea() {
     }
   }
 
-  const handleSendMessage = async (message, images = [], imageModel = null, documents = []) => {
+  const handleSendMessage = async (message, images = [], imageModel = null, documents = [], mediaOptions = {}) => {
     if (!selectedModel || !selectedProvider) {
       alert('Please select a model first')
       return
@@ -280,7 +280,7 @@ export default function ChatArea() {
         use_realtime_data: useRealtimeData,
         use_deep_research: useDeepResearch,
         image_model: imageModel,
-        image_size: imageSize,
+        image_size: mediaOptions.image?.size || imageSize,
       }
       
       console.log('💬 Sending chat request:')
@@ -314,6 +314,19 @@ export default function ChatArea() {
       // Add images if provided
       if (images.length > 0) {
         requestData.images = images.map(img => img.data)
+      }
+
+      // Media options for image/video
+      if (mediaOptions.image) {
+        if (mediaOptions.image.quality) requestData.image_quality = mediaOptions.image.quality
+        if (mediaOptions.image.style) requestData.image_style = mediaOptions.image.style
+      }
+      if (mediaOptions.video) {
+        if (mediaOptions.video.duration) requestData.video_duration = mediaOptions.video.duration
+        if (mediaOptions.video.ratio) requestData.video_ratio = mediaOptions.video.ratio
+        if (mediaOptions.video.watermark !== undefined) requestData.video_watermark = mediaOptions.video.watermark
+        if (mediaOptions.video.camera_fixed !== undefined) requestData.video_camera_fixed = mediaOptions.video.camera_fixed
+        if (mediaOptions.video.generate_audio !== undefined) requestData.video_generate_audio = mediaOptions.video.generate_audio
       }
       
       // Add inline documents if provided (for Google AI)
@@ -605,6 +618,12 @@ export default function ChatArea() {
         selectedBot={selectedBot}
         conversationId={currentConversation?.id}
         selectedProvider={selectedProvider}
+        selectedModel={selectedModel}
+        selectedModelMeta={
+          providers
+            .flatMap(p => p.models)
+            .find(m => m.id === selectedModel && m.provider === selectedProvider)
+        }
         supportsVision={
           providers
             .flatMap(p => p.models)

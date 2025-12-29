@@ -109,6 +109,13 @@ export const useStore = create((set, get) => ({
   useAgent: false,
   imageRatio: '1:1',
   imageSize: '1024x1024',
+  imageQuality: 'standard',
+  imageStyle: '',
+  videoDuration: 5,
+  videoRatio: '',
+  videoWatermark: true,
+  videoCameraFixed: true,
+  videoAudio: true,
   useRealtimeData: (() => {
     try {
       const stored = localStorage.getItem('useRealtimeData')
@@ -130,7 +137,17 @@ export const useStore = create((set, get) => ({
   setTemperature: (temperature) => set({ temperature }),
   setMaxTokens: (maxTokens) => set({ maxTokens }),
   setUseAgent: (useAgent) => set({ useAgent }),
+  setImageSize: (imageSize) => set({ imageSize }),
   setImageRatio: (ratio, size) => set({ imageRatio: ratio, imageSize: size }),
+  setImageQuality: (imageQuality) => set({ imageQuality }),
+  setImageStyle: (imageStyle) => set({ imageStyle }),
+  setVideoDefaults: (defaults) => set((state) => ({
+    videoDuration: defaults.videoDuration ?? state.videoDuration,
+    videoRatio: defaults.videoRatio ?? state.videoRatio,
+    videoWatermark: defaults.videoWatermark ?? state.videoWatermark,
+    videoCameraFixed: defaults.videoCameraFixed ?? state.videoCameraFixed,
+    videoAudio: defaults.videoAudio ?? state.videoAudio,
+  })),
   setUseRealtimeData: (useRealtimeData) => {
     try {
       localStorage.setItem('useRealtimeData', JSON.stringify(useRealtimeData))

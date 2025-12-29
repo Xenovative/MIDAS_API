@@ -1,8 +1,28 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Loader2, Image as ImageIcon, X, Mic, Volume2, Square, Sparkles, ChevronDown, FileText, Upload } from 'lucide-react'
+import { Send, Loader2, Image as ImageIcon, X, Mic, Volume2, Square, Sparkles, ChevronDown, FileText, Upload, Settings as SettingsIcon } from 'lucide-react'
 import { generationApi, documentsApi } from '../lib/api'
+import { useStore } from '../store/useStore'
 
-export default function ChatInput({ onSend, disabled, supportsVision, onImageIntent, selectedBot, conversationId, selectedProvider }) {
+export default function ChatInput({ onSend, disabled, supportsVision, onImageIntent, selectedBot, conversationId, selectedProvider, selectedModel, selectedModelMeta }) {
+  const {
+    imageSize: defaultImageSize,
+    imageQuality: defaultImageQuality,
+    imageStyle: defaultImageStyle,
+    videoDuration: defaultVideoDuration,
+    videoRatio: defaultVideoRatio,
+    videoWatermark: defaultVideoWatermark,
+    videoCameraFixed: defaultVideoCameraFixed,
+    videoAudio: defaultVideoAudio
+  } = useStore(state => ({
+    imageSize: state.imageSize,
+    imageQuality: state.imageQuality,
+    imageStyle: state.imageStyle,
+    videoDuration: state.videoDuration,
+    videoRatio: state.videoRatio,
+    videoWatermark: state.videoWatermark,
+    videoCameraFixed: state.videoCameraFixed,
+    videoAudio: state.videoAudio,
+  }))
   const [message, setMessage] = useState('')
   const [images, setImages] = useState([])
   const [documents, setDocuments] = useState([]) // Inline documents for Google AI
@@ -17,6 +37,16 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
   const [isImageIntent, setIsImageIntent] = useState(false)
   const [imageModels, setImageModels] = useState([])
   const [selectedImageModel, setSelectedImageModel] = useState(null)
+  const [showMediaModal, setShowMediaModal] = useState(false)
+  // Media parameter states
+  const [imageSizeOverride, setImageSizeOverride] = useState(defaultImageSize || '')
+  const [imageQualityOverride, setImageQualityOverride] = useState(defaultImageQuality || '')
+  const [imageStyleOverride, setImageStyleOverride] = useState(defaultImageStyle || '')
+  const [videoDuration, setVideoDuration] = useState(defaultVideoDuration || 5)
+  const [videoRatio, setVideoRatio] = useState(defaultVideoRatio || '')
+  const [videoWatermark, setVideoWatermark] = useState(defaultVideoWatermark ?? true)
+  const [videoCameraFixed, setVideoCameraFixed] = useState(defaultVideoCameraFixed ?? true)
+  const [videoAudio, setVideoAudio] = useState(defaultVideoAudio ?? true)
   const fileInputRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
@@ -45,6 +75,21 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
       onImageIntent()
     }
   }, [isImageIntent, onImageIntent])
+
+  // Sync defaults when model changes
+  useEffect(() => {
+    setImageSizeOverride(defaultImageSize || '')
+    setImageQualityOverride(defaultImageQuality || '')
+    setImageStyleOverride(defaultImageStyle || '')
+    setVideoDuration(defaultVideoDuration || 5)
+    setVideoRatio(defaultVideoRatio || '')
+    setVideoWatermark(defaultVideoWatermark ?? true)
+    setVideoCameraFixed(defaultVideoCameraFixed ?? true)
+    setVideoAudio(defaultVideoAudio ?? true)
+  }, [selectedModel, defaultImageSize, defaultImageQuality, defaultImageStyle, defaultVideoDuration, defaultVideoRatio, defaultVideoWatermark, defaultVideoCameraFixed, defaultVideoAudio])
+
+  const isVideoModel = selectedModelMeta?.type === 'video' || (selectedModel || '').toLowerCase().includes('seedance') || (selectedModel || '').toLowerCase().includes('video')
+  const isImageModel = selectedModelMeta?.supports_image_generation || selectedModelMeta?.type === 'image'
 
   const loadImageModels = async () => {
     try {
@@ -107,10 +152,45 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
   const handleSubmit = (e) => {
     e.preventDefault()
     if (message.trim() && !disabled) {
-      onSend(message, images, selectedImageModel, documents)
+      const mediaOptions = {}
+      const isVideoModel = selectedModelMeta?.type === 'video' || (selectedModel || '').toLowerCase().includes('seedance') || (selectedModel || '').toLowerCase().includes('video')
+      const isImageModel = selectedModelMeta?.supports_image_generation || selectedModelMeta?.type === 'image'
+
+      if (isImageModel) {
+        mediaOptions.image = {
+          size: imageSizeOverride || defaultImageSize || selectedModelMeta?.sizes?.[0] || '1024x1024',
+          quality: imageQualityOverride || defaultImageQuality || selectedModelMeta?.qualities?.[0] || 'standard',
+          style: imageStyleOverride || defaultImageStyle || ''
+        }
+      }
+
+      if (isVideoModel) {
+        mediaOptions.video = {
+          duration: Number(videoDuration || defaultVideoDuration) || 5,
+          ratio: (videoRatio || defaultVideoRatio) || undefined,
+          watermark: videoWatermark,
+          camera_fixed: videoCameraFixed,
+          generate_audio: videoAudio
+        }
+      }
+
+      onSend(message, images, selectedImageModel, documents, mediaOptions)
       setMessage('')
       setImages([])
       setDocuments([])
+      // Reset to defaults after send
+      if (isImageModel) {
+        setImageSizeOverride(defaultImageSize || '')
+        setImageQualityOverride(defaultImageQuality || '')
+        setImageStyleOverride(defaultImageStyle || '')
+      }
+      if (isVideoModel) {
+        setVideoDuration(defaultVideoDuration || 5)
+        setVideoRatio(defaultVideoRatio || '')
+        setVideoWatermark(defaultVideoWatermark ?? true)
+        setVideoCameraFixed(defaultVideoCameraFixed ?? true)
+        setVideoAudio(defaultVideoAudio ?? true)
+      }
     }
   }
 
@@ -299,9 +379,169 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
     }
   }
 
+  const renderMediaModal = () => {
+    if (!showMediaModal) return null
+    return (
+      <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+        <div className="w-full max-w-2xl bg-background border border-border rounded-t-2xl md:rounded-2xl shadow-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <SettingsIcon size={16} />
+              {isVideoModel ? 'Video generation settings' : 'Image generation settings'}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMediaModal(false)}
+              className="p-2 hover:bg-accent rounded-lg"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            {isImageModel && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Size</label>
+                  <select
+                    value={imageSizeOverride || selectedModelMeta?.sizes?.[0] || '1024x1024'}
+                    onChange={(e) => setImageSizeOverride(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                  >
+                    {(selectedModelMeta?.sizes || ['1024x1024']).map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Quality</label>
+                  <select
+                    value={imageQualityOverride || selectedModelMeta?.qualities?.[0] || 'standard'}
+                    onChange={(e) => setImageQualityOverride(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                  >
+                    {(selectedModelMeta?.qualities || ['standard']).map((q) => (
+                      <option key={q} value={q}>{q}</option>
+                    ))}
+                  </select>
+                </div>
+                {selectedModelMeta?.supports_style && selectedModelMeta?.styles?.length > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium mb-1">Style (optional)</label>
+                    <select
+                      value={imageStyleOverride}
+                      onChange={(e) => setImageStyleOverride(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                    >
+                      <option value="">None</option>
+                      {selectedModelMeta.styles.map((s) => (
+                        <option key={s} value={s}>{s.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isVideoModel && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Duration (s)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={videoDuration}
+                    onChange={(e) => setVideoDuration(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Ratio (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="16:9, 9:16, etc."
+                    value={videoRatio}
+                    onChange={(e) => setVideoRatio(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={videoWatermark}
+                      onChange={(e) => setVideoWatermark(e.target.checked)}
+                    />
+                    Watermark
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={videoCameraFixed}
+                      onChange={(e) => setVideoCameraFixed(e.target.checked)}
+                    />
+                    Camera fixed
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={videoAudio}
+                      onChange={(e) => setVideoAudio(e.target.checked)}
+                    />
+                    Audio
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
+            <button
+              type="button"
+              onClick={() => {
+                setImageSizeOverride(defaultImageSize || '')
+                setImageQualityOverride(defaultImageQuality || '')
+                setImageStyleOverride(defaultImageStyle || '')
+                setVideoDuration(defaultVideoDuration || 5)
+                setVideoRatio(defaultVideoRatio || '')
+                setVideoWatermark(defaultVideoWatermark ?? true)
+                setVideoCameraFixed(defaultVideoCameraFixed ?? true)
+                setVideoAudio(defaultVideoAudio ?? true)
+              }}
+              className="px-3 py-2 text-sm border border-border rounded-lg hover:bg-accent"
+            >
+              Reset to defaults
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowMediaModal(false)}
+              className="px-3 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <form onSubmit={handleSubmit} className="p-4 border-t border-border bg-background">
       <div className="max-w-4xl mx-auto">
+        {(isImageModel || isVideoModel) && (
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowMediaModal(true)}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-border rounded-lg hover:bg-accent transition-colors"
+            >
+              <SettingsIcon size={16} />
+              {isVideoModel ? 'Video settings' : 'Image settings'}
+            </button>
+          </div>
+        )}
+
         {/* Upload progress */}
         {uploadingDoc && (
           <div className="mb-3 p-3 bg-accent rounded-lg border border-border">
@@ -506,6 +746,7 @@ export default function ChatInput({ onSend, disabled, supportsVision, onImageInt
           </button>
         </div>
       </div>
+      {renderMediaModal()}
     </form>
   )
 }
