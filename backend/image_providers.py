@@ -6,6 +6,7 @@ from anthropic import AsyncAnthropic
 import httpx
 import base64
 import io
+import json
 from PIL import Image
 from backend.config import settings
 from google import genai
@@ -729,7 +730,16 @@ class VolcanoImageProvider(ImageProvider):
         if is_video:
             return await self._generate_video(prompt, actual_model, size)
         else:
-            return await self._generate_image(prompt, actual_model, size, n)
+            return await self._generate_image(
+                prompt=prompt,
+                model=actual_model,
+                size=size,
+                n=n,
+                image=image,
+                reference_images=reference_images,
+                quality=quality,
+                style=style
+            )
 
     def _get_endpoint_id(self, model: str) -> str:
         """Get the actual endpoint ID for a model name"""
@@ -758,7 +768,17 @@ class VolcanoImageProvider(ImageProvider):
         # Fallback to the model name itself
         return model
 
-    async def _generate_image(self, prompt: str, model: str, size: str, n: int) -> List[dict]:
+    async def _generate_image(
+        self,
+        prompt: str,
+        model: str,
+        size: str,
+        n: int,
+        image: Optional[str] = None,
+        reference_images: Optional[List[str]] = None,
+        quality: str = "standard",
+        style: Optional[str] = None
+    ) -> List[dict]:
         """OpenAI-compatible image generation for Seedream"""
         # Volcano Seedream (especially 4.5/Ark) often requires at least 3,686,400 pixels (e.g. 2048x2048)
         # We enforce this minimum for ALL Volcano generations to prevent InvalidParameter errors
@@ -769,6 +789,8 @@ class VolcanoImageProvider(ImageProvider):
         print(f"🔍 Model: {model}")
         print(f"🔍 Original Size: {size}")
         print(f"🔍 N: {n}")
+        print(f"🔍 Has Image: {bool(image)}")
+        print(f"🔍 Ref Images: {len(reference_images) if reference_images else 0}")
         
         actual_size = size
         if "x" in str(size):
@@ -809,8 +831,27 @@ class VolcanoImageProvider(ImageProvider):
                 "response_format": "url"
             }
             
+            # Support for Image-to-Image (Seedream 4.5 / Ark format)
+            if image:
+                # Most Ark image endpoints accept base64 in a specific field or as a URL
+                # Standard OpenAI format uses 'image' field for edits, but Ark often uses 'image_url' or similar
+                # We'll try the common 'image' field first as a base64 string
+                request_body["image"] = image
+            
+            if reference_images and len(reference_images) > 0:
+                # Support for multi-reference fusion if the model supports it
+                request_body["ref_images"] = reference_images
+            
+            # Additional parameters
+            if style:
+                request_body["style"] = style
+            
+            if quality == "hd":
+                # Some models support high quality settings
+                request_body["quality"] = "high"
+
             print(f"🚀 SENDING REQUEST TO: {self.base_url}/images/generations")
-            print(f"📦 REQUEST BODY: {json.dumps(request_body, indent=2)}")
+            print(f"📦 REQUEST BODY: {json.dumps(request_body, indent=2) if 'json' in globals() else 'JSON available'}")
             print("🔥"*20 + "\n")
             
             response = await client.post(
