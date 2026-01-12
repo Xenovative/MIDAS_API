@@ -22,4 +22,24 @@ else
   echo "[bootstrap] Skipping create_admin.py (CREATE_DEFAULT_ADMIN=${CREATE_DEFAULT_ADMIN})."
 fi
 
+# Handle SageMCP Database persistence
+# The database was pre-populated during build at /app/backend/sage_mcp/data/sage.db
+# We need to copy it to /data/sage.db (mounted volume) if it doesn't exist there yet
+TARGET_DB="/data/sage.db"
+SOURCE_DB="/app/backend/sage_mcp/data/sage.db"
+
+if [ ! -f "$TARGET_DB" ]; then
+  echo "[bootstrap] Initializing SageMCP database from image..."
+  if [ -f "$SOURCE_DB" ]; then
+    # Ensure directory exists
+    mkdir -p $(dirname "$TARGET_DB")
+    cp "$SOURCE_DB" "$TARGET_DB"
+    echo "[bootstrap] Database initialized successfully."
+  else
+    echo "[bootstrap] WARNING: Source database not found at $SOURCE_DB. SageMCP may start with empty DB."
+  fi
+else
+  echo "[bootstrap] SageMCP database found at $TARGET_DB."
+fi
+
 exec "$@"

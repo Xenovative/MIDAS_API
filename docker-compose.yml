@@ -11,6 +11,7 @@ services:
       - .env
     environment:
       DATABASE_URL: sqlite+aiosqlite:////data/midas.db
+      SAGE_DB_PATH: /data/sage.db
     volumes:
       - backend_data:/data
       - backend_uploads:/app/backend/static/uploads
@@ -19,7 +20,6 @@ services:
       - ./init_db.py:/app/init_db.py
       - ./create_admin.py:/app/create_admin.py
       - ./mcp_servers.json:/app/mcp_servers.json
-      - /root/SageMCP:/root/SageMCP:ro
     network_mode: host
     depends_on: []
 

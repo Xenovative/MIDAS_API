@@ -11,6 +11,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmagic1 \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -18,6 +20,17 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY backend ./backend
+
+# Build SageMCP
+WORKDIR /app/backend/sage_mcp
+RUN npm install && npm run build
+
+# Run XML Import to pre-populate database
+ENV SAGE_DB_PATH=/app/backend/sage_mcp/data/sage.db
+RUN npm run import-xml
+
+WORKDIR /app
+
 COPY init_db.py .
 COPY create_admin.py .
 COPY migrate_add_bot_id.py .

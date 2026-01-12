@@ -23,7 +23,10 @@
     },
     "sage": {
       "command": "node",
-      "args": ["/root/SageMCP/dist/index.js"],
+      "args": ["/app/backend/sage_mcp/dist/index.js"],
+      "env": {
+        "SAGE_DB_PATH": "/data/sage.db"
+      },
       "enabled": true
     }
   }
