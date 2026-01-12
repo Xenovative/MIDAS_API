@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users"],
+      "enabled": false
+    },
+    "brave-search": {
+      "command": "npx", 
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "your-brave-api-key"
+      },
+      "enabled": false
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "your-github-token"
+      },
+      "enabled": false
+    },
+    "sage": {
+      "command": "node",
+      "args": ["/root/SageMCP/dist/index.js"],
+      "enabled": true
+    }
+  }
+}

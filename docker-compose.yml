@@ -18,6 +18,8 @@ services:
       - ./backend:/app/backend
       - ./init_db.py:/app/init_db.py
       - ./create_admin.py:/app/create_admin.py
+      - ./mcp_servers.json:/app/mcp_servers.json
+      - /root/SageMCP:/root/SageMCP:ro
     network_mode: host
     depends_on: []
 

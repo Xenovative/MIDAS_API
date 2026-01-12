@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///./midas.db"
     
+    # MCP (Model Context Protocol)
+    mcp_config_path: str = "mcp_servers.json"
+    
     # CORS
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
     
