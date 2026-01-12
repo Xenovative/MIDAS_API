@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { X, Thermometer, Zap, MessageSquare, Hash, FileText, Cpu, Database, Globe, Trash2, Key, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Save, RefreshCw, Wand2, Users, Shield } from 'lucide-react'
+import { X, Thermometer, Zap, MessageSquare, Hash, FileText, Cpu, Database, Globe, Trash2, Key, CheckCircle, XCircle, AlertCircle, Eye, EyeOff, Save, RefreshCw, Wand2, Users, Shield, Box } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { conversationsApi, configApi, modelsApi } from '../lib/api'
 import ImageGenerator from './ImageGenerator'
 import UserManagement from './UserManagement'
 import ModelPermissions from './ModelPermissions'
+import MCPManager from './MCPManager'
 
 export default function Settings({ isOpen, onClose }) {
   const { 
@@ -215,6 +216,7 @@ export default function Settings({ isOpen, onClose }) {
     ...(isAdmin ? [
       { id: 'users', label: 'Users', icon: Users },
       { id: 'api', label: 'API Keys', icon: Key },
+      { id: 'mcp', label: 'MCP Servers', icon: Box },
       { id: 'advanced', label: 'Advanced', icon: FileText },
       { id: 'data', label: 'Data', icon: Database },
     ] : []),
@@ -533,6 +535,9 @@ export default function Settings({ isOpen, onClose }) {
 
       case 'users':
         return <UserManagement />
+
+      case 'mcp':
+        return <MCPManager />
 
       case 'api':
         return (

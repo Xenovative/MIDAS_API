@@ -178,4 +178,17 @@ export const adminApi = {
   bulkCreatePermissions: () => api.post('/admin/models/permissions/bulk-create'),
 }
 
+export const mcpApi = {
+  getStatus: () => api.get('/mcp/status'),
+  listServers: () => api.get('/mcp/servers'),
+  addServer: (data) => api.post('/mcp/servers', data),
+  connectServer: (serverName) => api.post(`/mcp/servers/${serverName}/connect`),
+  disconnectServer: (serverName) => api.post(`/mcp/servers/${serverName}/disconnect`),
+  removeServer: (serverName) => api.delete(`/mcp/servers/${serverName}`),
+  listTools: () => api.get('/mcp/tools'),
+  callTool: (toolName, arguments) => api.post('/mcp/tools/call', { tool_name: toolName, arguments }),
+  listResources: (serverName) => api.get(`/mcp/servers/${serverName}/resources`),
+  readResource: (serverName, uri) => api.post(`/mcp/servers/${serverName}/resources/read`, null, { params: { uri } }),
+}
+
 export default api
