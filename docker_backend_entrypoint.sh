@@ -22,21 +22,34 @@ else
   echo "[bootstrap] Skipping create_admin.py (CREATE_DEFAULT_ADMIN=${CREATE_DEFAULT_ADMIN})."
 fi
 
+# Build SageMCP if dist doesn't exist (volume mount overwrites Docker build)
+SAGE_MCP_DIR="/app/backend/sage_mcp"
+if [ -d "$SAGE_MCP_DIR" ] && [ -f "$SAGE_MCP_DIR/package.json" ]; then
+  if [ ! -d "$SAGE_MCP_DIR/dist" ]; then
+    echo "[bootstrap] Building SageMCP (dist not found)..."
+    cd "$SAGE_MCP_DIR"
+    npm install --silent
+    npm run build
+    cd /app
+    echo "[bootstrap] SageMCP built successfully."
+  else
+    echo "[bootstrap] SageMCP dist already exists."
+  fi
+fi
+
 # Handle SageMCP Database persistence
-# The database was pre-populated during build at /app/backend/sage_mcp/data/sage.db
-# We need to copy it to /data/sage.db (mounted volume) if it doesn't exist there yet
 TARGET_DB="/data/sage.db"
-SOURCE_DB="/app/backend/sage_mcp/data/sage.db"
+SOURCE_XML="$SAGE_MCP_DIR/data/papers_database.xml"
 
 if [ ! -f "$TARGET_DB" ]; then
-  echo "[bootstrap] Initializing SageMCP database from image..."
-  if [ -f "$SOURCE_DB" ]; then
-    # Ensure directory exists
-    mkdir -p $(dirname "$TARGET_DB")
-    cp "$SOURCE_DB" "$TARGET_DB"
-    echo "[bootstrap] Database initialized successfully."
+  echo "[bootstrap] Initializing SageMCP database..."
+  if [ -f "$SOURCE_XML" ] && [ -d "$SAGE_MCP_DIR/dist" ]; then
+    cd "$SAGE_MCP_DIR"
+    SAGE_DB_PATH="$TARGET_DB" npm run import-xml
+    cd /app
+    echo "[bootstrap] SageMCP database initialized successfully."
   else
-    echo "[bootstrap] WARNING: Source database not found at $SOURCE_DB. SageMCP may start with empty DB."
+    echo "[bootstrap] WARNING: Cannot initialize SageMCP database. XML or dist not found."
   fi
 else
   echo "[bootstrap] SageMCP database found at $TARGET_DB."
