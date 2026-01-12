@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile.backend
     image: midas-backend:latest
     container_name: midas-backend
+    hostname: backend
     env_file:
       - .env
     environment:
@@ -20,7 +21,9 @@ services:
       - ./create_admin.py:/app/create_admin.py
       - ./mcp_servers.json:/app/mcp_servers.json
     networks:
-      - midas
+      midas:
+        aliases:
+          - backend
     depends_on: []
 
   frontend:
@@ -31,21 +34,27 @@ services:
         VITE_API_BASE_URL: "/api"
     image: midas-frontend:latest
     container_name: midas-frontend
+    hostname: frontend
     networks:
-      - midas
+      midas:
+        aliases:
+          - frontend
     depends_on:
       - backend
 
   proxy:
     image: caddy:2
     container_name: midas-proxy
+    hostname: proxy
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     networks:
-      - midas
+      midas:
+        aliases:
+          - proxy
     depends_on:
       - backend
       - frontend

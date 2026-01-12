@@ -1,13 +1,13 @@
 :80 {
   handle_path /api/* {
-    reverse_proxy backend:8000
+    reverse_proxy 10.89.4.11:8000
   }
 
   handle /static/* {
-    reverse_proxy backend:8000
+    reverse_proxy 10.89.4.11:8000
   }
 
   handle {
-    reverse_proxy frontend:80
+    reverse_proxy 10.89.4.12:80
   }
 }
