@@ -21,9 +21,12 @@ RUN pip install --upgrade pip && \
 
 COPY backend ./backend
 
+# Explicitly copy SageMCP to ensure it's present (in case of cache/copy issues)
+COPY backend/sage_mcp /app/backend/sage_mcp
+
 # Build SageMCP
 WORKDIR /app/backend/sage_mcp
-RUN npm install && npm run build
+RUN ls -la && npm install && npm run build
 
 # Run XML Import to pre-populate database
 ENV SAGE_DB_PATH=/app/backend/sage_mcp/data/sage.db
