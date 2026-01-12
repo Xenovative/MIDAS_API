@@ -47,6 +47,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# SageMCP build artifacts
+backend/sage_mcp/node_modules/
+backend/sage_mcp/dist/
+backend/sage_mcp/data/*.db
+backend/sage_mcp/data/*.db-*
+
 # Build
 frontend/dist/
 frontend/build/

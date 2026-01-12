@@ -2,6 +2,11 @@
 .gitignore
 **/node_modules
 **/dist
+!backend/sage_mcp/src
+!backend/sage_mcp/data
+!backend/sage_mcp/package.json
+!backend/sage_mcp/package-lock.json
+!backend/sage_mcp/tsconfig.json
 backend/__pycache__
 **/__pycache__
 *.py[cod]
