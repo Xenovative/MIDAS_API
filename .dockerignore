@@ -1,12 +1,7 @@
 .git
 .gitignore
 **/node_modules
-**/dist
-!backend/sage_mcp/src
-!backend/sage_mcp/data
-!backend/sage_mcp/package.json
-!backend/sage_mcp/package-lock.json
-!backend/sage_mcp/tsconfig.json
+!backend/sage_mcp/node_modules
 backend/__pycache__
 **/__pycache__
 *.py[cod]
@@ -17,3 +12,5 @@ venv
 __pycache__/
 Dockerfile*
 docker-compose.yml
+frontend/dist
+frontend/build
