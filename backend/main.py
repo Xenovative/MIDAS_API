@@ -3,16 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from backend.config import settings
 from backend.database import init_db
-from backend.routes import conversations, chat, models, tools, config, generation, auth, admin, suggestions, bots, documents
+from backend.routes import conversations, chat, models, tools, config, generation, auth, admin, suggestions, bots, documents, mcp
+from backend.mcp_client import initialize_mcp, shutdown_mcp
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    await initialize_mcp()
     yield
     # Shutdown
-    pass
+    await shutdown_mcp()
 
 
 from fastapi.staticfiles import StaticFiles
@@ -48,6 +50,7 @@ app.include_router(generation.router)
 app.include_router(suggestions.router)
 app.include_router(bots.router)
 app.include_router(documents.router)
+app.include_router(mcp.router)
 
 
 @app.get("/")

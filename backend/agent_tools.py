@@ -309,6 +309,24 @@ class ImageGenerationTool(AgentTool):
             }
 
 
+class MCPToolWrapper(AgentTool):
+    """Wrapper to expose MCP tools as AgentTools"""
+    
+    def __init__(self, mcp_tool):
+        self.mcp_tool = mcp_tool
+        self.name = f"mcp_{mcp_tool.server_name}_{mcp_tool.name}"
+        self.description = f"[MCP:{mcp_tool.server_name}] {mcp_tool.description}"
+        self.parameters = mcp_tool.input_schema
+    
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        try:
+            from backend.mcp_client import mcp_manager
+            result = await mcp_manager.call_tool(self.name, kwargs)
+            return {"success": True, "result": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
 class AgentToolManager:
     def __init__(self):
         self.tools = {
@@ -319,10 +337,25 @@ class AgentToolManager:
         }
     
     def get_tool(self, tool_name: str) -> AgentTool:
-        return self.tools.get(tool_name)
+        # Check built-in tools first
+        if tool_name in self.tools:
+            return self.tools.get(tool_name)
+        
+        # Check MCP tools
+        if tool_name.startswith("mcp_"):
+            try:
+                from backend.mcp_client import mcp_manager
+                for mcp_tool in mcp_manager.get_all_tools():
+                    full_name = f"mcp_{mcp_tool.server_name}_{mcp_tool.name}"
+                    if full_name == tool_name:
+                        return MCPToolWrapper(mcp_tool)
+            except Exception as e:
+                print(f"⚠️ Error getting MCP tool: {e}")
+        
+        return None
     
     def get_all_tools(self) -> List[Dict[str, Any]]:
-        return [
+        tools = [
             {
                 "name": tool.name,
                 "description": tool.description,
@@ -330,10 +363,24 @@ class AgentToolManager:
             }
             for tool in self.tools.values()
         ]
+        
+        # Add MCP tools
+        try:
+            from backend.mcp_client import mcp_manager
+            for mcp_tool in mcp_manager.get_all_tools():
+                tools.append({
+                    "name": f"mcp_{mcp_tool.server_name}_{mcp_tool.name}",
+                    "description": f"[MCP:{mcp_tool.server_name}] {mcp_tool.description}",
+                    "parameters": mcp_tool.input_schema
+                })
+        except Exception as e:
+            print(f"⚠️ Error loading MCP tools: {e}")
+        
+        return tools
     
     def get_tools_for_llm(self) -> List[Dict[str, Any]]:
-        """Format tools for LLM function calling"""
-        return [
+        """Format tools for LLM function calling (includes MCP tools)"""
+        tools = [
             {
                 "type": "function",
                 "function": {
@@ -344,6 +391,15 @@ class AgentToolManager:
             }
             for tool in self.tools.values()
         ]
+        
+        # Add MCP tools
+        try:
+            from backend.mcp_client import mcp_manager
+            tools.extend(mcp_manager.get_tools_for_llm())
+        except Exception as e:
+            print(f"⚠️ Error loading MCP tools for LLM: {e}")
+        
+        return tools
 
 
 agent_tool_manager = AgentToolManager()
