@@ -24,7 +24,7 @@
     "sage": {
       "command": "node",
       "args": ["/root/SageMCP/dist/index.js"],
-      "enabled": true
+      "enabled": false
     }
   }
 }
