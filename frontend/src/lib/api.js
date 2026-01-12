@@ -186,7 +186,7 @@ export const mcpApi = {
   disconnectServer: (serverName) => api.post(`/mcp/servers/${serverName}/disconnect`),
   removeServer: (serverName) => api.delete(`/mcp/servers/${serverName}`),
   listTools: () => api.get('/mcp/tools'),
-  callTool: (toolName, arguments) => api.post('/mcp/tools/call', { tool_name: toolName, arguments }),
+  callTool: (toolName, args) => api.post('/mcp/tools/call', { tool_name: toolName, arguments: args }),
   listResources: (serverName) => api.get(`/mcp/servers/${serverName}/resources`),
   readResource: (serverName, uri) => api.post(`/mcp/servers/${serverName}/resources/read`, null, { params: { uri } }),
 }
