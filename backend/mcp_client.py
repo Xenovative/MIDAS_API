@@ -299,9 +299,13 @@ class MCPManager:
             if config.name in self.clients:
                 continue
             
-            client = MCPClient(config)
-            if await client.connect():
-                self.clients[config.name] = client
+            try:
+                client = MCPClient(config)
+                if await client.connect():
+                    self.clients[config.name] = client
+            except Exception as e:
+                print(f"⚠️ Failed to connect to MCP server '{config.name}': {e}")
+                # Continue with other servers
         
         self._initialized = True
     
@@ -390,9 +394,13 @@ mcp_manager = MCPManager()
 
 async def initialize_mcp():
     """Initialize MCP connections on startup"""
-    from backend.config import settings
-    mcp_manager.load_config_from_file(settings.mcp_config_path)
-    await mcp_manager.connect_all()
+    try:
+        from backend.config import settings
+        mcp_manager.load_config_from_file(settings.mcp_config_path)
+        await mcp_manager.connect_all()
+    except Exception as e:
+        print(f"⚠️ MCP initialization failed (non-fatal): {e}")
+        # Don't crash the server if MCP fails to initialize
 
 
 async def shutdown_mcp():
