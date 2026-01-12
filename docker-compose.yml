@@ -18,7 +18,9 @@ services:
       - ./backend:/app/backend
       - ./init_db.py:/app/init_db.py
       - ./create_admin.py:/app/create_admin.py
-    network_mode: host
+      - ./mcp_servers.json:/app/mcp_servers.json
+    networks:
+      - midas
     depends_on: []
 
   frontend:
@@ -29,20 +31,28 @@ services:
         VITE_API_BASE_URL: "/api"
     image: midas-frontend:latest
     container_name: midas-frontend
-    ports:
-      - "3000:80"
+    networks:
+      - midas
     depends_on:
       - backend
 
   proxy:
     image: caddy:2
     container_name: midas-proxy
-    network_mode: host
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - midas
     depends_on:
       - backend
       - frontend
+
+networks:
+  midas:
+    driver: bridge
 
 volumes:
   backend_data:
